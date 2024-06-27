@@ -76,7 +76,8 @@ def diashow(settings):
     print(f"Number of datasets in the file: {len(data)}")
 
     _, ax = plt.subplots()
-    tracker = IndexTracker(ax, data, settings)
+    axes = (ax, ax.twinx())
+    tracker = IndexTracker(axes, data, settings)
 
     axprev = plt.axes([0.7, 0.01, 0.1, 0.075])
     axnext = plt.axes([0.81, 0.01, 0.1, 0.075])
@@ -116,8 +117,8 @@ def filter_dataset(settings, raw_dataset) -> FilteredRecording:
 
 
 class IndexTracker:
-    def __init__(self, ax, data: list, settings):
-        self.ax = ax
+    def __init__(self, axes, data: list, settings):
+        self.axes = axes
         self.data = data # : list of FilteredRecording
         self.settings = settings
         self.index = 0
@@ -125,19 +126,15 @@ class IndexTracker:
             self.plot()
 
     def plot(self):
-        fig = self.ax.figure
-
-        self.ax.clear()
-        for ax in fig.axes:
-            if ax is not self.ax and ax.get_ylabel() != '':
-                fig.delaxes(ax)
+        for ax in self.axes:
+            ax.clear()
 
         df = self.data[self.index].df
         # TODO: Evaluate units
         # if self.settings.kbps:
         #     df = df.resample('1s').sum().mul(8).div(1000)
 
-        plot_df(DEFAULT_DIASHOW_PLOT_TYPE_CHOICES[self.settings.plot_type], df, axes=self.ax)
+        plot_df(DEFAULT_DIASHOW_PLOT_TYPE_CHOICES[self.settings.plot_type], df, axes=self.axes)
 
     def check_data(self, file_index) -> bool:
         if isinstance(self.data[file_index], FilteredRecording):
@@ -172,24 +169,34 @@ class IndexTracker:
 
 
 def plot_df(func, df: pd.DataFrame, axes=None, legend=True):
-    ax: Axes = axes
+    if axes is None:
+        _, ax_left = plt.subplots()
+        ax_right = ax_left.twinx()
+    else:
+        ax_left, ax_right = axes
 
-    if ax is None:
-        _, ax = plt.subplots()
 
-    func(ax, df)
+    func(axes, df)
 
     # ax.set_title('Scatter Plot of UL Bytes over Time')
-    ax.tick_params(axis='x', rotation=45)
-    ax.set_xlabel('Timestamp (seconds)', fontsize=28)
-    ax.set_ylabel('RTT (us)', fontsize=28)
-    ax.tick_params(axis='x', labelsize=24)
-    ax.tick_params(axis='y', labelsize=24)
+    ax_left.tick_params(axis='x', rotation=45)
+    ax_left.set_xlabel('Timestamp (seconds)', fontsize=28)
+    ax_left.set_ylabel('RTT (us)', fontsize=28)
+    ax_right.set_ylabel('cwnd (MSS)', fontsize=28)
+    ax_left.tick_params(axis='x', labelsize=24)
+    ax_left.tick_params(axis='y', labelsize=24)
+    ax_right.tick_params(axis='y', labelsize=24)
 
     if legend:
-        ax.legend(fontsize=18)
+        handles1, labels1 = ax_left.get_legend_handles_labels()
+        handles2, labels2 = ax_right.get_legend_handles_labels()
 
-    if ax is None:
+        handles = handles1 + handles2
+        labels = labels1 + labels2
+
+        ax_left.legend(handles, labels, loc='upper right', fontsize=18)
+
+    if axes is None:
         plt.show()
     else:
         plt.draw()
@@ -209,6 +216,21 @@ def plot_pandas_scatter_twinx(ax, df: pd.DataFrame):
     ax2.set_ylabel(df.columns[1])
 
 
+def plot_pandas_scatter_twinx(axes, df: pd.DataFrame):
+    ax_left, ax_right = axes
+    ax_left.scatter(df.index, df[df.columns[0]],
+                    label=df.columns[0],
+                    marker=MARKERS[0 % len(MARKERS)],
+                    s=PLOT_SCATTER_MARKER_SIZE)
+
+    ax_left.set_ylabel(df.columns[0])
+    ax_right.scatter(df.index, df[df.columns[1]],
+                     label=df.columns[1],
+                     marker=MARKERS[1 % len(MARKERS)],
+                     s=PLOT_SCATTER_MARKER_SIZE, color='r')
+    ax_right.set_ylabel(df.columns[1])
+
+
 def plot_pandas_line(ax, df):
     for i, column in enumerate(df.columns):
         x_values = df.index  # Convert index to NumPy array
@@ -216,14 +238,18 @@ def plot_pandas_line(ax, df):
         ax.plot(x_values, y_values, marker=MARKERS[i % len(MARKERS)], label=column)
 
 
-def plot_pandas_line_twinx(ax, df):
-    ax.plot(df.index.to_numpy(), df[df.columns[0]].values, label=df.columns[0], marker=MARKERS[0 % len(MARKERS)])
-    ax.set_ylabel(df.columns[0])
+def plot_pandas_line_twinx(axes, df):
+    ax_left, ax_right = axes
+    ax_left.plot(df.index.to_numpy(), df[df.columns[0]].values,
+                 label=df.columns[0],
+                 marker=MARKERS[0 % len(MARKERS)])
+    ax_left.set_ylabel(df.columns[0])
     
-    ax2 = ax.twinx()
-    
-    ax2.plot(df.index.to_numpy(), df[df.columns[1]].values, label=df.columns[1], marker=MARKERS[1 % len(MARKERS)], color='r')
-    ax2.set_ylabel(df.columns[1])
+    ax_right.plot(df.index.to_numpy(), df[df.columns[1]].values,
+                  label=df.columns[1],
+                  marker=MARKERS[1 % len(MARKERS)],
+                  color='r')
+    ax_right.set_ylabel(df.columns[1])
 
 
 def log_bins(data):

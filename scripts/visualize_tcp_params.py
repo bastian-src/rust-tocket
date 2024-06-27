@@ -125,7 +125,13 @@ class IndexTracker:
             self.plot()
 
     def plot(self):
+        fig = self.ax.figure
+
         self.ax.clear()
+        for ax in fig.axes:
+            if ax is not self.ax and ax.get_ylabel() != '':
+                fig.delaxes(ax)
+
         df = self.data[self.index].df
         # TODO: Evaluate units
         # if self.settings.kbps:
@@ -176,7 +182,7 @@ def plot_df(func, df: pd.DataFrame, axes=None, legend=True):
     # ax.set_title('Scatter Plot of UL Bytes over Time')
     ax.tick_params(axis='x', rotation=45)
     ax.set_xlabel('Timestamp (seconds)', fontsize=28)
-    ax.set_ylabel('UL Traffic (kbit/s)', fontsize=28)
+    ax.set_ylabel('RTT (us)', fontsize=28)
     ax.tick_params(axis='x', labelsize=24)
     ax.tick_params(axis='y', labelsize=24)
 
@@ -193,12 +199,31 @@ def plot_pandas_scatter(ax, df: pd.DataFrame):
     for i, column in enumerate(df.columns):
         ax.scatter(df.index, df[column], label=column, marker=MARKERS[i % len(MARKERS)], s=PLOT_SCATTER_MARKER_SIZE)
 
+def plot_pandas_scatter_twinx(ax, df: pd.DataFrame):
+    ax.scatter(df.index, df[df.columns[0]], label=df.columns[0], marker=MARKERS[0 % len(MARKERS)], s=PLOT_SCATTER_MARKER_SIZE)
+    ax.set_ylabel(df.columns[0])
+    
+    ax2 = ax.twinx()
+    
+    ax2.scatter(df.index, df[df.columns[1]], label=df.columns[1], marker=MARKERS[1 % len(MARKERS)], s=PLOT_SCATTER_MARKER_SIZE, color='r')
+    ax2.set_ylabel(df.columns[1])
+
 
 def plot_pandas_line(ax, df):
     for i, column in enumerate(df.columns):
         x_values = df.index  # Convert index to NumPy array
         y_values = df[column].values
         ax.plot(x_values, y_values, marker=MARKERS[i % len(MARKERS)], label=column)
+
+
+def plot_pandas_line_twinx(ax, df):
+    ax.plot(df.index.to_numpy(), df[df.columns[0]].values, label=df.columns[0], marker=MARKERS[0 % len(MARKERS)])
+    ax.set_ylabel(df.columns[0])
+    
+    ax2 = ax.twinx()
+    
+    ax2.plot(df.index.to_numpy(), df[df.columns[1]].values, label=df.columns[1], marker=MARKERS[1 % len(MARKERS)], color='r')
+    ax2.set_ylabel(df.columns[1])
 
 
 def log_bins(data):
@@ -224,10 +249,12 @@ def plot_pandas_hist(ax, df):
     ax.set_ylabel('Frequency')
     # ax.set_title('Histogram of UL Bytes')
 
-DEFAULT_DIASHOW_PLOT_TYPE = 'scatter'
+DEFAULT_DIASHOW_PLOT_TYPE = 'scatter-twinx'
 DEFAULT_DIASHOW_PLOT_TYPE_CHOICES = {
     'scatter': plot_pandas_scatter,
+    'scatter-twinx': plot_pandas_scatter_twinx,
     'line': plot_pandas_line,
+    'line-twinx': plot_pandas_line_twinx,
     'hist': plot_pandas_hist,
 }
 

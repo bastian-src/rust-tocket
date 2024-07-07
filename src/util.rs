@@ -2,8 +2,18 @@ use crate::client::TcpStatsLog;
 use std::collections::HashMap;
 use sysctl::Sysctl;
 
-pub const THREAD_SLEEP_TIME_US: u64 = 500;
-pub const THREAD_SLEEP_FINISH_MS: u64 = 500;
+pub const DEFAULT_BUS_SIZE: usize = 100;
+pub const THREAD_SLEEP_TIME_SHORT_US: u64 = 10;
+pub const THREAD_SLEEP_FINISH_MS: u64 = 1000;
+
+pub const CONSTANT_BIT_TO_BYTE: u64 = 8;
+pub const CONSTANT_US_TO_MS: u64 = 1000;
+
+#[derive(Debug, Clone)]
+pub enum DynamicValue<T> {
+    Dynamic,
+    Fixed(T),
+}
 
 #[repr(C)]
 #[derive(Debug, Default)]

@@ -4,6 +4,16 @@ use clap::{Command, CommandFactory, Parser};
 use serde::{Deserialize, Serialize};
 use std::{default, path::PathBuf};
 
+pub const DEFAULT_VERBOSE: Option<bool> = Some(true);
+pub const DEFAULT_SERVER_ADDR: &str = "0.0.0.0:9393";
+pub const DEFAULT_INITIAL_CWND: Option<u32> = None;
+pub const DEFAULT_DIRECT_CWND: Option<u32> = None;
+pub const DEFAULT_UPPER_BOUND_CWND: Option<u32> = None;
+pub const DEFAULT_TRANSMISSION_DURATION_MS: Option<u64> = Some(10000);
+pub const DEFAULT_LOGGING_INTERVAL_US: Option<u64> = Some(1000);
+pub const DEFAULT_EXTERNAL_INTERFACE: Option<bool> = Some(true);
+pub const DEFAULT_EXTERNAL_INTERFACE_ADDR: &str = "0.0.0.0:9494";
+
 #[derive(Debug, Clone, PartialEq, Parser, Serialize, Deserialize)]
 #[command(author, version, about, long_about = None, next_line_help = true)]
 #[command(propagate_version = true)]
@@ -12,13 +22,21 @@ pub struct Arguments {
     #[clap(short, long)]
     pub verbose: Option<bool>,
 
+    /// Local server addr
+    #[clap(short, long)]
+    pub server_addr: Option<String>,
+
     /// Requires patch: Set the initial congestion window size (uint)
     #[clap(short, long)]
     pub initial_cwnd: Option<u32>,
 
     /// Requires patch: Set the congestion window size (uint)
     #[clap(short, long)]
-    pub cwnd: Option<u32>,
+    pub direct_cwnd: Option<u32>,
+
+    /// Requires patch: Set an upper bound for the congestion window size (uint)
+    #[clap(short, long)]
+    pub upper_bound_cwnd: Option<u32>,
 
     /// Lenght of the transmission in ms
     #[clap(short, long)]
@@ -27,25 +45,41 @@ pub struct Arguments {
     /// Logging interval
     #[clap(short, long)]
     pub logging_interval_us: Option<u64>,
+
+    /// Enable socket for receiving external rate information
+    #[clap(long)]
+    pub external_interface: Option<bool>,
+
+    /// Local address for external-interface socket address
+    #[clap(long)]
+    pub external_interface_addr: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 pub struct FlattenedArguments {
     pub verbose: bool,
+    pub server_addr: String,
     pub initial_cwnd: Option<u32>,
-    pub cwnd: Option<u32>,
+    pub direct_cwnd: Option<u32>,
+    pub upper_bound_cwnd: Option<u32>,
     pub transmission_duration_ms: u64,
     pub logging_interval_us: u64,
+    pub external_interface: bool,
+    pub external_interface_addr: String,
 }
 
 impl default::Default for Arguments {
     fn default() -> Self {
         Arguments {
-            verbose: Some(false),
-            initial_cwnd: None,
-            cwnd: None,
-            transmission_duration_ms: Some(10000),
-            logging_interval_us: Some(1000),
+            verbose: DEFAULT_VERBOSE,
+            server_addr: Some(DEFAULT_SERVER_ADDR.to_string()),
+            initial_cwnd: DEFAULT_INITIAL_CWND,
+            direct_cwnd: DEFAULT_DIRECT_CWND,
+            upper_bound_cwnd: DEFAULT_UPPER_BOUND_CWND,
+            transmission_duration_ms: DEFAULT_TRANSMISSION_DURATION_MS,
+            logging_interval_us: DEFAULT_LOGGING_INTERVAL_US,
+            external_interface: DEFAULT_EXTERNAL_INTERFACE,
+            external_interface_addr: Some(DEFAULT_EXTERNAL_INTERFACE_ADDR.to_string()),
         }
     }
 }
@@ -77,12 +111,18 @@ impl Arguments {
         let config_file: Arguments = confy::load(app_name, None)?;
 
         self.verbose = self.verbose.or(config_file.verbose);
+        self.server_addr = self.server_addr.or(config_file.server_addr);
         self.initial_cwnd = self.initial_cwnd.or(config_file.initial_cwnd);
-        self.cwnd = self.cwnd.or(config_file.cwnd);
+        self.direct_cwnd = self.direct_cwnd.or(config_file.direct_cwnd);
+        self.upper_bound_cwnd = self.upper_bound_cwnd.or(config_file.upper_bound_cwnd);
         self.transmission_duration_ms = self
             .transmission_duration_ms
             .or(config_file.transmission_duration_ms);
         self.logging_interval_us = self.logging_interval_us.or(config_file.logging_interval_us);
+        self.external_interface = self.external_interface.or(config_file.external_interface);
+        self.external_interface_addr = self
+            .external_interface_addr
+            .or(config_file.external_interface_addr);
 
         Ok(self)
     }
@@ -115,10 +155,14 @@ impl FlattenedArguments {
     pub fn from_unflattened(args: Arguments) -> Result<FlattenedArguments> {
         Ok(FlattenedArguments {
             verbose: args.verbose.unwrap(),
+            server_addr: args.server_addr.unwrap(),
             initial_cwnd: args.initial_cwnd,
-            cwnd: args.cwnd,
+            direct_cwnd: args.direct_cwnd,
+            upper_bound_cwnd: args.upper_bound_cwnd,
             transmission_duration_ms: args.transmission_duration_ms.unwrap(),
             logging_interval_us: args.logging_interval_us.unwrap(),
+            external_interface: args.external_interface.unwrap(),
+            external_interface_addr: args.external_interface_addr.unwrap(),
         })
     }
 }

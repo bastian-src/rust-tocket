@@ -1,4 +1,3 @@
-
 use crate::client::TcpStatsLog;
 use std::collections::HashMap;
 use sysctl::Sysctl;
@@ -51,9 +50,6 @@ pub struct StockTcpInfo {
     pub tcpi_total_retrans: u32,
 }
 
-
-
-
 /// Returns the default TCP congestion control algorithm as a string.
 pub fn get_tcp_congestion_control() -> String {
     let ctl = sysctl::Ctl::new("net.ipv4.tcp_congestion_control").unwrap();
@@ -100,6 +96,3 @@ pub fn calculate_statistics(
 
     (rtt_mean, cwnd_mean, rtt_median, cwnd_median)
 }
-
-
-

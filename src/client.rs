@@ -1,12 +1,15 @@
-use std::io::Write;
-use std::sync::Arc;
-use std::sync::Mutex;
 use crate::logger::Logger;
-use crate::parse::Arguments;
-use crate::util::THREAD_SLEEP_TIME_US;
-use crate::util::THREAD_SLEEP_FINISH_MS;
+use crate::parse::FlattenedArguments;
 use crate::util::calculate_statistics;
 use crate::util::StockTcpInfo;
+use crate::util::THREAD_SLEEP_FINISH_MS;
+use crate::util::THREAD_SLEEP_TIME_US;
+use anyhow::{anyhow, Result};
+use serde::{Deserialize, Serialize};
+use std::io::Write;
+use std::mem;
+use std::sync::Arc;
+use std::sync::Mutex;
 use std::{
     collections::HashMap,
     net::TcpStream,
@@ -14,11 +17,8 @@ use std::{
     thread,
     time::{Duration, SystemTime},
 };
-use std::mem;
-use serde::{Deserialize, Serialize};
-use anyhow::{anyhow, Result};
 
-use libc::{c_void, getsockopt, socklen_t, TCP_INFO, setsockopt};
+use libc::{c_void, getsockopt, setsockopt, socklen_t, TCP_INFO};
 
 /// Array of 8192 bytes filled with 0x01
 const DUMMY_DATA: &[u8] = &[0x01; 8192];
@@ -43,8 +43,11 @@ pub struct TcpStatsLog {
     pub cwnd: u32,
 }
 
-
-pub fn handle_client(args: Arguments, mut stream: TcpStream, logger: &mut Arc<Mutex<Logger>>) -> Result<()> {
+pub fn handle_client(
+    args: FlattenedArguments,
+    mut stream: TcpStream,
+    logger: &mut Arc<Mutex<Logger>>,
+) -> Result<()> {
     let logging_interval_us = args.logging_interval_us;
     let transmission_duration_ms = args.transmission_duration_ms;
 
@@ -56,7 +59,8 @@ pub fn handle_client(args: Arguments, mut stream: TcpStream, logger: &mut Arc<Mu
     }
 
     let start_time = SystemTime::now();
-    let mut last_logging_timestamp_us = chrono::Utc::now().timestamp_micros() as u64 - logging_interval_us;
+    let mut last_logging_timestamp_us =
+        chrono::Utc::now().timestamp_micros() as u64 - logging_interval_us;
     while (start_time.elapsed()?.as_millis() as u64) < transmission_duration_ms {
         let now_us = chrono::Utc::now().timestamp_micros() as u64;
         if now_us - last_logging_timestamp_us >= logging_interval_us {
@@ -123,7 +127,10 @@ fn sockopt_patch_set_cwnd(stream: &TcpStream, cwnd: u32) -> Result<()> {
         let error_message = unsafe { std::ffi::CStr::from_ptr(libc::strerror(errno_val)) }
             .to_string_lossy()
             .into_owned();
-        return Err(anyhow!("An error occurred running libc::setsockopt: {}", error_message));
+        return Err(anyhow!(
+            "An error occurred running libc::setsockopt: {}",
+            error_message
+        ));
     }
 
     Ok(())
@@ -162,13 +169,19 @@ fn sockopt_patch_set_initial_cwnd(stream: &TcpStream, initial_cwnd: u32) -> Resu
         let error_message = unsafe { std::ffi::CStr::from_ptr(libc::strerror(errno_val)) }
             .to_string_lossy()
             .into_owned();
-        return Err(anyhow!("An error occurred running libc::setsockopt: {}", error_message));
+        return Err(anyhow!(
+            "An error occurred running libc::setsockopt: {}",
+            error_message
+        ));
     }
 
     Ok(())
 }
 
-fn sockopt_get_tcp_info(stream: &TcpStream, timedata: &mut HashMap<u64, TcpStatsLog>) -> Result<()> {
+fn sockopt_get_tcp_info(
+    stream: &TcpStream,
+    timedata: &mut HashMap<u64, TcpStatsLog>,
+) -> Result<()> {
     let fd = stream.as_raw_fd();
 
     // Prepare the buffer for TCP_INFO
@@ -197,5 +210,3 @@ fn sockopt_get_tcp_info(stream: &TcpStream, timedata: &mut HashMap<u64, TcpStats
     timedata.insert(timestamp_us, TcpStatsLog { rtt, cwnd });
     Ok(())
 }
-
-

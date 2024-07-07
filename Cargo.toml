@@ -7,9 +7,11 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.86"
+bus = "2.4.1"
 chrono = "0.4.38"
 clap = { version = "4.5.7", features = ["derive", "color", "env", "help"] }
 confy = { version = "0.6.1", default-features = false, features = ["yaml_conf"] }
+httparse = "1.9.4"
 libc = "0.2.155"
 serde = { version = "1.0.203", features = ["derive"] }
 serde_json = "1.0.117"

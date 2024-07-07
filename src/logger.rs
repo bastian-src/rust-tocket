@@ -4,6 +4,7 @@ use std::io::{self, Write};
 
 const LOGS_DIRECTORY: &str = ".logs";
 
+#[derive(Debug)]
 pub struct Logger {
     file: File,
 }

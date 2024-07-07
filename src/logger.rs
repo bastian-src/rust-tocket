@@ -1,9 +1,8 @@
 use std::fs::OpenOptions;
+use std::fs::{self, File};
 use std::io::{self, Write};
-use std::fs::{File, self};
 
 const LOGS_DIRECTORY: &str = ".logs";
-
 
 pub struct Logger {
     file: File,
@@ -33,5 +32,3 @@ impl Logger {
         Ok(())
     }
 }
-
-

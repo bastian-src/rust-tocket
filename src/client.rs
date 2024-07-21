@@ -1,3 +1,19 @@
+use anyhow::{anyhow, Result, Context};
+use serde::{Deserialize, Serialize};
+use std::fmt;
+use std::io::Write;
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::thread::JoinHandle;
+use std::{
+    collections::HashMap,
+    net::TcpStream,
+    os::unix::io::AsRawFd,
+    thread,
+    time::Duration,
+};
+
+use crate::TransmissionType;
 use crate::external::ClientMetrics;
 use crate::external::MetricTypes;
 use crate::logger::Logger;
@@ -6,24 +22,14 @@ use crate::util::CONSTANT_BIT_TO_BYTE;
 use crate::util::CONSTANT_US_TO_MS;
 use crate::util::calculate_statistics;
 use crate::util::DynamicValue;
-use crate::util::StockTcpInfo;
 use crate::util::THREAD_SLEEP_FINISH_MS;
 use crate::util::THREAD_SLEEP_TIME_SHORT_US;
-use anyhow::{anyhow, Result, Context};
-use serde::{Deserialize, Serialize};
-use std::io::Write;
-use std::mem;
-use std::sync::Arc;
-use std::sync::Mutex;
-use std::{
-    collections::HashMap,
-    net::TcpStream,
-    os::unix::io::AsRawFd,
-    thread,
-    time::{Duration, SystemTime},
-};
+use crate::util::get_active_cca;
+use crate::util::sockopt_get_latest_tcp_info;
+use crate::util::sockopt_get_tcp_info;
+use crate::util::sockopt_patch_cwnd;
+use crate::util::sockopt_set_cc;
 
-use libc::{c_void, getsockopt, setsockopt, socklen_t, TCP_INFO};
 
 /// Array of 8192 bytes filled with 0x01
 const DUMMY_DATA_SIZE: usize = 32768;// 16384; // 8192
@@ -37,6 +43,16 @@ pub const TCP_SET_UPPER_CWND: u32 = 62;
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Transmission {
     pub client_ip: String,
+    pub transmission_type: TransmissionType,
+    pub transmission_duration_ms: u64,
+    pub total_bytes_acked: u64,
+    pub total_bytes_sent: u64,
+    pub tenth_percentile_bytes_acked: u64,
+    pub tenth_percentile_bytes_sent: u64,
+    pub tenth_percentile_time_diff_us: u64,
+    pub start_timestamp_us: u64,
+    pub end_timestamp_us: u64,
+    pub min_rtt_us: u64,
     pub rtt_mean: Option<u32>,
     pub cwnd_mean: Option<u32>,
     pub rtt_median: Option<u32>,
@@ -44,11 +60,50 @@ pub struct Transmission {
     pub timedata: HashMap<u64, TcpStatsLog>,
 }
 
+impl fmt::Display for Transmission {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "\tClient IP:         {}\n\
+             \tTransmission Type: {:?}\n\
+             \tDuration (ms):     {}\n\
+             \tBytes Sent:        {}\n\
+             \tBytes Acked:       {}\n\
+             \t10th Bytes Sent:   {}\n\
+             \t10th Bytes Acked:  {}\n\
+             \tRTT Mean:          {:?}\n\
+             \tCWND Mean:         {:?}\n\
+             \tRTT Median:        {:?}\n\
+             \tCWND Median:       {:?}\n\
+             \tTimedata Size:     {}\n\
+             \tAverage rate:      {:3.3?} Mibit/s",
+            self.client_ip,
+            self.transmission_type,
+            self.transmission_duration_ms,
+            self.total_bytes_sent,
+            self.total_bytes_acked,
+            self.tenth_percentile_bytes_sent,
+            self.tenth_percentile_bytes_acked,
+            self.rtt_mean,
+            self.cwnd_mean,
+            self.rtt_median,
+            self.cwnd_median,
+            self.timedata.len(),
+            (self.total_bytes_sent as f64 * 8.0 / (1024.0 * 1024.0))
+                / (self.transmission_duration_ms as f64 / 1000.0),
+        )
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TcpStatsLog {
     pub rtt: u32,
     pub cwnd: u32,
-    pub ack_sent: u64,
+    pub bytes_acked: u64,
+    pub bytes_sent: u64,
+    pub set_initital_cwnd: Option<u32>,
+    pub set_upper_cwnd: Option<u32>,
+    pub set_direct_cwnd: Option<u32>,
 }
 
 #[derive(Debug)]
@@ -57,6 +112,7 @@ pub struct ClientArgs {
     pub stream: TcpStream,
     pub logger: Arc<Mutex<Logger>>,
     pub client_metrics: Option<Arc<Mutex<ClientMetrics>>>,
+    pub transmission_type: TransmissionType,
     pub set_initial_cwnd: Option<DynamicValue<u32>>,
     pub set_upper_bound_cwnd: Option<DynamicValue<u32>>,
     pub set_direct_cwnd: Option<DynamicValue<u32>>,
@@ -69,8 +125,8 @@ fn init_dummy_data() -> Box<[u8]> {
     vec.into_boxed_slice()
 }
 
-pub fn rate_to_cwnd(stream: &TcpStream, rate_bit_per_ms: u64) -> Result<u32> {
-    let tcp_info = sockopt_get_tcp_info(stream)?;
+pub fn rate_to_cwnd(socket_file_descriptor: i32, rate_bit_per_ms: u64) -> Result<u32> {
+    let tcp_info = sockopt_get_tcp_info(socket_file_descriptor)?;
     let rtt_us: f64 = tcp_info.tcpi_rtt as f64;
     let mss: u64 = tcp_info.tcpi_snd_mss as u64;
 
@@ -153,95 +209,144 @@ fn unpack_latest_rate(
 
 fn patch_initial_cwnd(
     initial_cwnd_dyn: DynamicValue<u32>,
-    stream: &TcpStream,
+    socket_file_descriptor: i32,
     client_metrics: &Option<Arc<Mutex<ClientMetrics>>>,
     client_addr: &str,
-) -> Result<()> {
-    println!("DEBUG [client] patch_initial_cwnd");
+) -> Result<Option<u32>> {
     let initial_cwnd: u32 = match initial_cwnd_dyn {
         DynamicValue::Dynamic => {
             let latest_metric: MetricTypes =
                 unpack_latest_rate(&client_metrics.clone().unwrap(), client_addr)?;
-            println!("  latest_metric.get_timestamp_us(): {:?}", latest_metric.get_timestamp_us());
             let rate: u64 = latest_metric.get_rate();
-            rate_to_cwnd(stream, rate)?
+            rate_to_cwnd(socket_file_descriptor, rate)?
         }
         DynamicValue::Fixed(fixed_cwnd) => fixed_cwnd,
     };
-    println!("  patching initial_cwnd: {:?}", initial_cwnd);
-    sockopt_patch_cwnd(stream, initial_cwnd, TCP_SET_INIT_CWND)?;
-    println!("  after patching cwnd: {:?}", sockopt_get_tcp_info(stream)?.tcpi_snd_cwnd);
-    Ok(())
+    sockopt_patch_cwnd(socket_file_descriptor, initial_cwnd, TCP_SET_INIT_CWND)?;
+    Ok(Some(initial_cwnd))
 }
 
 fn patch_upper_cwnd(
     upper_cwnd_dyn: DynamicValue<u32>,
-    stream: &TcpStream,
+    socket_file_descriptor: i32,
     client_metrics: &Option<Arc<Mutex<ClientMetrics>>>,
     client_addr: &str,
-) -> Result<()> {
-    println!("DEBUG [client] patch_upper_cwnd");
+) -> Result<Option<u32>> {
     let upper_cwnd: u32 = match upper_cwnd_dyn {
         DynamicValue::Dynamic => {
             let latest_metric: MetricTypes =
                 unpack_latest_rate(&client_metrics.clone().unwrap(), client_addr)?;
             let rate: u64 = latest_metric.get_rate();
-            rate_to_cwnd(stream, rate)?
+            rate_to_cwnd(socket_file_descriptor, rate)?
         }
         DynamicValue::Fixed(fixed_cwnd) => fixed_cwnd,
     };
-    println!("  to set cwnd: \t{:?}", upper_cwnd);
-    sockopt_patch_cwnd(stream, upper_cwnd, TCP_SET_UPPER_CWND)?;
-    println!("  tcp_info.cwnd: \t{:?}", sockopt_get_tcp_info(stream)?.tcpi_snd_cwnd);
-    Ok(())
+    sockopt_patch_cwnd(socket_file_descriptor, upper_cwnd, TCP_SET_UPPER_CWND)?;
+    Ok(Some(upper_cwnd))
 }
 
 fn patch_direct_cwnd(
     direct_cwnd_dyn: DynamicValue<u32>,
-    stream: &TcpStream,
+    socket_file_descriptor: i32,
     client_metrics: &Option<Arc<Mutex<ClientMetrics>>>,
     client_addr: &str,
-) -> Result<()> {
+) -> Result<Option<u32>> {
     let direct_cwnd: u32 = match direct_cwnd_dyn {
         DynamicValue::Dynamic => {
             let latest_metric: MetricTypes =
                 unpack_latest_rate(&client_metrics.clone().unwrap(), client_addr)?;
             let rate: u64 = latest_metric.get_rate();
-            rate_to_cwnd(stream, rate)?
+            rate_to_cwnd(socket_file_descriptor, rate)?
         }
         DynamicValue::Fixed(fixed_cwnd) => fixed_cwnd,
     };
-    sockopt_patch_cwnd(stream, direct_cwnd, TCP_SET_DIRECT_CWND)?;
-    Ok(())
+    sockopt_patch_cwnd(socket_file_descriptor, direct_cwnd, TCP_SET_DIRECT_CWND)?;
+    Ok(Some(direct_cwnd))
+}
+
+fn patch_upper_cwnd_if_new_metric(
+    upper_cwnd_dyn: DynamicValue<u32>,
+    socket_file_descriptor: i32,
+    client_metrics: &Option<Arc<Mutex<ClientMetrics>>>,
+    client_addr: &str,
+    last_metric_timestamp_us: &mut u64,
+) -> Result<Option<u32>> {
+     let upper_cwnd: u32 = match upper_cwnd_dyn {
+        DynamicValue::Dynamic => {
+            let latest_metric: MetricTypes =
+                unpack_latest_rate(&client_metrics.clone().unwrap(), client_addr)?;
+            if latest_metric.get_timestamp_us() > *last_metric_timestamp_us {
+                *last_metric_timestamp_us = latest_metric.get_timestamp_us();
+                let rate: u64 = latest_metric.get_rate();
+                rate_to_cwnd(socket_file_descriptor, rate)?
+            } else {
+                return Ok(None)
+            }
+        }
+        DynamicValue::Fixed(fixed_cwnd) => fixed_cwnd,
+    };
+    sockopt_patch_cwnd(socket_file_descriptor, upper_cwnd, TCP_SET_UPPER_CWND)?;
+    Ok(Some(upper_cwnd))
+   
+}
+
+fn patch_direct_cwnd_if_new_metric(
+    direct_cwnd_dyn: DynamicValue<u32>,
+    socket_file_descriptor: i32,
+    client_metrics: &Option<Arc<Mutex<ClientMetrics>>>,
+    client_addr: &str,
+    last_metric_timestamp_us: &mut u64,
+) -> Result<Option<u32>> {
+    let direct_cwnd: u32 = match direct_cwnd_dyn {
+        DynamicValue::Dynamic => {
+            let latest_metric: MetricTypes =
+                unpack_latest_rate(&client_metrics.clone().unwrap(), client_addr)?;
+            if latest_metric.get_timestamp_us() > *last_metric_timestamp_us {
+                *last_metric_timestamp_us = latest_metric.get_timestamp_us();
+            let rate: u64 = latest_metric.get_rate();
+            rate_to_cwnd(socket_file_descriptor, rate)?
+            } else {
+                return Ok(None)
+            }
+        }
+        DynamicValue::Fixed(fixed_cwnd) => fixed_cwnd,
+    };
+    sockopt_patch_cwnd(socket_file_descriptor, direct_cwnd, TCP_SET_DIRECT_CWND)?;
+    Ok(Some(direct_cwnd))
 }
 
 pub fn handle_client(mut client_args: ClientArgs) -> Result<()> {
-    println!("[client] new client:");
-    println!("  client_args.set_initial_cwnd: {:?}", client_args.set_initial_cwnd);
-    println!("  client_args.set_upper_bound_cwnd: {:?}", client_args.set_upper_bound_cwnd);
-    println!("  client_args.set_direct_cwnd: {:?}", client_args.set_direct_cwnd);
-
     // TODO: Decouple tcp_info logging and cwnd setting to an additional thread
-    let mut stream: TcpStream = client_args.stream;
+    let stream: TcpStream = client_args.stream;
     let client_metrics = client_args.client_metrics;
     let is_external = client_args.args.external_interface;
+    let transmission_type = client_args.transmission_type;
     let set_upper_bound_cwnd = client_args.set_upper_bound_cwnd;
     let set_initial_cwnd = client_args.set_initial_cwnd;
     let set_direct_cwnd = client_args.set_direct_cwnd;
     let logging_interval_us = client_args.args.logging_interval_us;
     let transmission_duration_ms = client_args.args.transmission_duration_ms;
     let logger: &mut Arc<Mutex<Logger>> = &mut client_args.logger;
+    let socket_file_descriptor: i32 = stream.as_raw_fd();
 
-    let dummy_data: Box<[u8]> = init_dummy_data();
+    logger.lock().unwrap().log_stdout("[client] new client:")?;
+    logger.lock().unwrap().log_stdout(&format!("  client_args.set_initial_cwnd: {:?}", set_initial_cwnd))?;
+    logger.lock().unwrap().log_stdout(&format!("  client_args.set_upper_bound_cwnd: {:?}", set_upper_bound_cwnd))?;
+    logger.lock().unwrap().log_stdout(&format!("  client_args.set_direct_cwnd: {:?}", set_direct_cwnd))?;
+
     let mut timedata = HashMap::new();
     let client_addr: String = stream.peer_addr()?.ip().to_string();
 
-    println!("  stream.fd: {:?}", &stream.as_raw_fd());
-    println!("  stream.cwnd: {:?}", sockopt_get_tcp_info(&stream)?.tcpi_snd_cwnd);
-    println!("  stream.rtt_us: {:?}", sockopt_get_tcp_info(&stream)?.tcpi_rtt);
+    println!("  stream.fd:    \t{:?}", socket_file_descriptor);
+    println!("  stream.cwnd:  \t{:?}", sockopt_get_tcp_info(socket_file_descriptor)?.tcpi_snd_cwnd);
+    println!("  stream.rtt_us:\t{:?}", sockopt_get_tcp_info(socket_file_descriptor)?.tcpi_rtt);
     if let Ok(latest_metric) = unpack_latest_rate(&client_metrics.clone().unwrap(), &client_addr) {
         println!("  fair_share_send_rate: {:?}", latest_metric.get_rate());
     }
+
+    sockopt_set_cc(socket_file_descriptor, &transmission_type)?;
+    println!("  active CCA:\t{}", get_active_cca(socket_file_descriptor)?);
+    println!();
 
     let uses_external: bool = check_uses_external(
         &is_external,
@@ -255,18 +360,171 @@ pub fn handle_client(mut client_args: ClientArgs) -> Result<()> {
     if uses_external {
         wait_until_client_metric(&client_metrics.clone().unwrap(), &client_addr);
     }
-
-    if let Some(upper_cwnd_dyn) = set_upper_bound_cwnd.clone() {
-        patch_upper_cwnd(upper_cwnd_dyn, &stream, &client_metrics, &client_addr)?;
+    if transmission_type.is_pbe() {
+        let initial_cwnd_option = if let Some(initial_cwnd_dyn) = set_initial_cwnd.clone() {
+            patch_initial_cwnd(initial_cwnd_dyn, socket_file_descriptor, &client_metrics, &client_addr)?
+        } else {
+            None
+        };
+        let upper_cwnd_option = if let Some(upper_cwnd_dyn) = set_upper_bound_cwnd.clone() {
+            patch_upper_cwnd(upper_cwnd_dyn, socket_file_descriptor, &client_metrics, &client_addr)?
+        } else {
+            None
+        };
+        let direct_cwnd_option = if let Some(direct_cwnd_dyn) = set_direct_cwnd.clone() {
+            patch_direct_cwnd(direct_cwnd_dyn, socket_file_descriptor, &client_metrics, &client_addr)?
+        } else {
+            None
+        };
+        append_tcp_info_to_stats_log(socket_file_descriptor,
+                                     &mut timedata,
+                                     initial_cwnd_option,
+                                     upper_cwnd_option,
+                                     direct_cwnd_option)?;
     }
 
-    if let Some(initial_cwnd_dyn) = set_initial_cwnd.clone() {
-        patch_initial_cwnd(initial_cwnd_dyn, &stream, &client_metrics, &client_addr)?;
+    let min_rtt_us: u64 = sockopt_get_tcp_info(socket_file_descriptor)?.tcpi_rtt as u64;
+
+    let start_timestamp_us = chrono::Utc::now().timestamp_micros() as u64;
+    let end_timestamp_us = start_timestamp_us + (transmission_duration_ms * 1000);
+    let mut last_logging_timestamp_us = 0;
+    let mut last_metric_timestamp_us = 0;
+    let mut last_set_cwnd_timestamp_us = 0;
+
+    let mut joined_stream: TcpStream;
+    let join_handle_stream: JoinHandle<Result<TcpStream>> =
+        deploy_sending_thread(stream, end_timestamp_us);
+
+    loop {
+        if join_handle_stream.is_finished() {
+            joined_stream = match join_handle_stream.join() {
+                Ok(result) => result?,
+                Err(e) => return Err(anyhow!("[client] error joining finished TcpStream: {:?}", e)),
+            };
+            break;
+        }
+
+        let now_us = chrono::Utc::now().timestamp_micros() as u64;
+
+        if now_us - last_logging_timestamp_us >= logging_interval_us {
+            append_tcp_info_to_stats_log(socket_file_descriptor,
+                                         &mut timedata,
+                                         None,
+                                         None,
+                                         None)?;
+            last_logging_timestamp_us = now_us;
+        }
+        if transmission_type.is_pbe() && now_us - last_set_cwnd_timestamp_us >= min_rtt_us {
+            last_set_cwnd_timestamp_us = chrono::Utc::now().timestamp_micros() as u64;
+            if let Some(upper_cwnd_dyn) = set_upper_bound_cwnd.clone()  {
+                let upper_cwnd_option = patch_upper_cwnd_if_new_metric(upper_cwnd_dyn,
+                                               socket_file_descriptor,
+                                               &client_metrics,
+                                               &client_addr,
+                                               &mut last_metric_timestamp_us)?;
+
+                append_tcp_info_to_stats_log(socket_file_descriptor,
+                                             &mut timedata,
+                                             None,
+                                             upper_cwnd_option,
+                                             None)?;
+            }
+            if let Some(direct_cwnd_dyn) = set_direct_cwnd.clone() {
+                let direct_cwnd_option = patch_direct_cwnd_if_new_metric(direct_cwnd_dyn,
+                                                socket_file_descriptor,
+                                                &client_metrics,
+                                                &client_addr,
+                                                &mut last_metric_timestamp_us)?;
+
+                append_tcp_info_to_stats_log(socket_file_descriptor,
+                                             &mut timedata,
+                                             None,
+                                             None,
+                                             direct_cwnd_option)?;
+            }
+        }
+        thread::sleep(Duration::from_micros(THREAD_SLEEP_TIME_SHORT_US));
     }
 
-    let start_time = SystemTime::now();
-    let mut last_logging_timestamp_us =
-        chrono::Utc::now().timestamp_micros() as u64 - logging_interval_us;
+    thread::sleep(Duration::from_millis(THREAD_SLEEP_FINISH_MS));
+
+    let final_tcp_info = sockopt_get_latest_tcp_info(socket_file_descriptor)?;
+    let total_bytes_acked = final_tcp_info.tcpi_bytes_acked;
+    let total_bytes_sent = final_tcp_info.tcpi_bytes_sent;
+    let (tenth_percentile_index, tenth_percentile_item) = get_tenth_percentile_entry(&timedata)?;
+    let tenth_percentile_bytes_acked = tenth_percentile_item.bytes_acked;
+    let tenth_percentile_bytes_sent = tenth_percentile_item.bytes_sent;
+    let tenth_percentile_time_diff_us = tenth_percentile_index - start_timestamp_us;
+
+    finish_transmission(&mut joined_stream)?;
+
+    let (rtt_mean, cwnd_mean, rtt_median, cwnd_median) = calculate_statistics(&timedata);
+    let transmission = Transmission {
+        client_ip: client_addr.clone(),
+        transmission_type: transmission_type.clone(),
+        min_rtt_us,
+        start_timestamp_us,
+        end_timestamp_us,
+        transmission_duration_ms,
+        total_bytes_acked,
+        total_bytes_sent,
+        tenth_percentile_bytes_acked,
+        tenth_percentile_bytes_sent,
+        tenth_percentile_time_diff_us,
+        rtt_mean,
+        cwnd_mean,
+        rtt_median,
+        cwnd_median,
+        timedata,
+    };
+
+    logger.lock().unwrap().log_stdout(&format!("[client] tranmission finished:\n{}", &transmission))?;
+    let json_str = serde_json::to_string(&transmission)?;
+    logger.lock().unwrap().log_transmission(&json_str, transmission_type)?;
+
+    Ok(())
+}
+
+fn deploy_sending_thread(
+    stream: TcpStream,
+    finish_timestamp_us: u64,
+) -> JoinHandle<Result<TcpStream>> {
+    let handle: thread::JoinHandle<Result<TcpStream>> = thread::spawn(move || {
+        run_sending_thread(stream, finish_timestamp_us)
+    });
+    handle
+}
+
+
+fn run_sending_thread(
+    mut stream: TcpStream,
+    finish_timestamp_us: u64,
+) -> Result<TcpStream> {
+    let dummy_data: Box<[u8]> = init_dummy_data();
+
+    let mut now: u64;
+    loop {
+        now = chrono::Utc::now().timestamp_micros() as u64;
+        if now >= finish_timestamp_us {
+            break;
+        }
+        stream.write_all(&dummy_data)?;
+        thread::sleep(Duration::from_micros(THREAD_SLEEP_TIME_SHORT_US));
+    }
+
+    Ok(stream)
+}
+
+fn finish_transmission(stream: &mut TcpStream) -> Result<()> {
+    thread::sleep(Duration::from_millis(THREAD_SLEEP_FINISH_MS));
+    stream.flush()?;
+    thread::sleep(Duration::from_millis(THREAD_SLEEP_FINISH_MS));
+    stream.shutdown(std::net::Shutdown::Write)?;
+    Ok(())
+}
+
+/*
+fn run_sending_thread() -> Result<()> {
 
     while (start_time.elapsed()?.as_millis() as u64) < transmission_duration_ms {
         let now_us = chrono::Utc::now().timestamp_micros() as u64;
@@ -288,91 +546,40 @@ pub fn handle_client(mut client_args: ClientArgs) -> Result<()> {
     stream.write_all(b"Transmission complete. Thank you!\n")?;
     thread::sleep(Duration::from_millis(THREAD_SLEEP_FINISH_MS));
     stream.flush()?; // Flush again to ensure the completion message is sent before
-                     // closing the socket
-    thread::sleep(Duration::from_millis(THREAD_SLEEP_FINISH_MS));
-    stream.shutdown(std::net::Shutdown::Write)?;
-
-    let (rtt_mean, cwnd_mean, rtt_median, cwnd_median) = calculate_statistics(&timedata);
-    let transmission = Transmission {
-        client_ip: client_addr.clone(),
-        rtt_mean,
-        cwnd_mean,
-        rtt_median,
-        cwnd_median,
-        timedata,
-    };
-    let json_str = serde_json::to_string(&transmission)?;
-    logger.lock().unwrap().log(&json_str)?;
-
-    Ok(())
 }
-
-fn sockopt_patch_cwnd(stream: &TcpStream, upper_cwnd: u32, patch_type: u32) -> Result<()> {
-    let fd = stream.as_raw_fd();
-
-    // Prepare the buffer for TCP_INFO
-    let cwnd_typed: *const c_void = &upper_cwnd as *const _ as *const c_void;
-    let size_of_cwnd = mem::size_of::<u32>() as libc::socklen_t;
-
-    let ret = unsafe {
-        setsockopt(
-            fd,
-            libc::SOL_TCP,
-            patch_type as libc::c_int,
-            cwnd_typed,
-            size_of_cwnd,
-        )
-    };
-
-    if ret != 0 {
-        // Capture errno
-        let errno_val = unsafe { *libc::__errno_location() };
-        let error_message = unsafe { std::ffi::CStr::from_ptr(libc::strerror(errno_val)) }
-            .to_string_lossy()
-            .into_owned();
-        return Err(anyhow!(
-            "An error occurred running libc::setsockopt: {}",
-            error_message
-        ));
-    }
-
-    Ok(())
-}
-
-fn sockopt_get_tcp_info(stream: &TcpStream) -> Result<StockTcpInfo> {
-    let fd = stream.as_raw_fd();
-
-    let mut tcp_info: StockTcpInfo = StockTcpInfo::default();
-    let mut tcp_info_len = mem::size_of::<StockTcpInfo>() as socklen_t;
-
-    let ret = unsafe {
-        getsockopt(
-            fd,
-            libc::IPPROTO_TCP,
-            TCP_INFO,
-            &mut tcp_info as *mut _ as *mut c_void,
-            &mut tcp_info_len,
-        )
-    };
-
-    // Check if getsockopt was successful
-    if ret != 0 {
-        return Err(anyhow!("An error occured running libc::getsockopt"));
-    }
-    Ok(tcp_info)
-}
+*/
 
 fn append_tcp_info_to_stats_log(
-    stream: &TcpStream,
+    socket_file_descriptor: i32,
     timedata: &mut HashMap<u64, TcpStatsLog>,
+    initial_cwnd_option: Option<u32>,
+    upper_cwnd_option: Option<u32>,
+    direct_cwnd_option: Option<u32>,
 ) -> Result<()> {
-    let tcp_info = sockopt_get_tcp_info(stream)?;
+    let latest_tcp_info = sockopt_get_latest_tcp_info(socket_file_descriptor)?;
 
     let timestamp_us = chrono::Utc::now().timestamp_micros() as u64;
-    let rtt = tcp_info.tcpi_rtt;
-    let cwnd = tcp_info.tcpi_snd_cwnd;
-    let ack_sent = tcp_info.tcpi_last_ack_sent as u64;
+    let rtt = latest_tcp_info.tcpi_rtt;
+    let cwnd = latest_tcp_info.tcpi_snd_cwnd;
+    let bytes_acked = latest_tcp_info.tcpi_bytes_acked;
+    let bytes_sent = latest_tcp_info.tcpi_bytes_sent;
 
-    timedata.insert(timestamp_us, TcpStatsLog { rtt, cwnd, ack_sent });
+    timedata.insert(timestamp_us, TcpStatsLog {
+        rtt,
+        cwnd,
+        bytes_acked,
+        bytes_sent,
+        set_initital_cwnd: initial_cwnd_option,
+        set_upper_cwnd: upper_cwnd_option,
+        set_direct_cwnd: direct_cwnd_option,
+    });
     Ok(())
+}
+
+fn get_tenth_percentile_entry(map: &HashMap<u64, TcpStatsLog>) -> Result<(&u64, &TcpStatsLog)> {
+    let mut entries: Vec<(&u64, &TcpStatsLog)> = map.iter().collect();
+    entries.sort_by_key(|entry| entry.0);
+    let tenth_percentile_index = (entries.len() as f64 * 0.1).floor() as usize;
+
+    Ok(entries.get(tenth_percentile_index).copied().unwrap())
 }

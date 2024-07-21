@@ -9,13 +9,13 @@ import time
 DEFAULT_PORT = 9393
 DEFAULT_NOF_REQUESTS = 50
 DEFAULT_REQUESTS_SPACING_MS = 1000
-DEFAULT_PATH = 'init_and_upper'
+DEFAULT_PATH = '/pbe/init_and_upper'
 DEFAULT_PROTO = 'http'
 DEFAULT_PROTO_CHOICES = ['http', 'https']
 
 
 def perform_request(proto, address, port, path):
-    url = f"{proto}://{address}:{port}/{path}"
+    url = f"{proto}://{address}:{port}{path}"
     command = ['wget', '-O', '/dev/null', url]
 
     try:

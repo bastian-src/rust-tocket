@@ -20,6 +20,7 @@ DEFAULT_RESET_TIMESTAMPS = True
 DEFAULT_FILTER_KEEP_REST = False
 DEFAULT_EXPORT_PATH = './.export/'
 DEFAULT_DIASHOW_KBPS = False
+DEFAULT_DIASHOW_RTT_MS = True
 
 # RNTI Filterting
 DCI_THRESHOLD = 0
@@ -111,6 +112,9 @@ def filter_dataset(settings, raw_dataset) -> FilteredRecording:
     df = pd.DataFrame.from_dict(timedata, orient='index')
     df.index = pd.to_datetime(df.index, unit='us')
 
+    if settings.rtt_ms:
+        df.rtt = df.rtt / 1000
+
     result.df = df
 
     return result
@@ -130,9 +134,6 @@ class IndexTracker:
             ax.clear()
 
         df = self.data[self.index].df
-        # TODO: Evaluate units
-        # if self.settings.kbps:
-        #     df = df.resample('1s').sum().mul(8).div(1000)
 
         plot_df(DEFAULT_DIASHOW_PLOT_TYPE_CHOICES[self.settings.plot_type], df, axes=self.axes)
 
@@ -181,7 +182,7 @@ def plot_df(func, df: pd.DataFrame, axes=None, legend=True):
     # ax.set_title('Scatter Plot of UL Bytes over Time')
     ax_left.tick_params(axis='x', rotation=45)
     ax_left.set_xlabel('Timestamp (seconds)', fontsize=28)
-    ax_left.set_ylabel('RTT (us)', fontsize=28)
+    ax_left.set_ylabel('RTT (ms)', fontsize=28)
     ax_right.set_ylabel('cwnd (MSS)', fontsize=28)
     ax_left.tick_params(axis='x', labelsize=24)
     ax_left.tick_params(axis='y', labelsize=24)
@@ -205,15 +206,6 @@ def plot_df(func, df: pd.DataFrame, axes=None, legend=True):
 def plot_pandas_scatter(ax, df: pd.DataFrame):
     for i, column in enumerate(df.columns):
         ax.scatter(df.index, df[column], label=column, marker=MARKERS[i % len(MARKERS)], s=PLOT_SCATTER_MARKER_SIZE)
-
-def plot_pandas_scatter_twinx(ax, df: pd.DataFrame):
-    ax.scatter(df.index, df[df.columns[0]], label=df.columns[0], marker=MARKERS[0 % len(MARKERS)], s=PLOT_SCATTER_MARKER_SIZE)
-    ax.set_ylabel(df.columns[0])
-    
-    ax2 = ax.twinx()
-    
-    ax2.scatter(df.index, df[df.columns[1]], label=df.columns[1], marker=MARKERS[1 % len(MARKERS)], s=PLOT_SCATTER_MARKER_SIZE, color='r')
-    ax2.set_ylabel(df.columns[1])
 
 
 def plot_pandas_scatter_twinx(axes, df: pd.DataFrame):
@@ -299,10 +291,10 @@ if __name__ == "__main__":
 
     # diashow subcommand
     parser_diashow = subparsers.add_parser('diashow', help='Run diashow mode')
-    parser_diashow.add_argument('--kbps',
+    parser_diashow.add_argument('--rtt-ms',
                                 type=bool,
-                                default=DEFAULT_DIASHOW_KBPS,
-                                help='Resample to kbps (default: {DEFAULT_DIASHOW_KBPS})')
+                                default=DEFAULT_DIASHOW_RTT_MS,
+                                help='Translate us RTT to ms (default: {DEFAULT_DIASHOW_RTT_MS})')
     parser_diashow.add_argument('--plot-type',
                                 type=str,
                                 choices=list(DEFAULT_DIASHOW_PLOT_TYPE_CHOICES.keys()),

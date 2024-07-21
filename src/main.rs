@@ -1,17 +1,16 @@
-use anyhow::Result;
-use bus::Bus;
-use external::{deploy_external_interface, ClientMetrics, ExternalInterfaceArgs};
-use std::io;
 use std::net::TcpListener;
 use std::sync::mpsc::Receiver;
 use std::thread;
-use util::{DynamicValue, DEFAULT_BUS_SIZE};
+use anyhow::Result;
+use bus::Bus;
+use serde::{Deserialize, Serialize};
 
 use std::sync::{mpsc, Arc, Mutex};
 
 use crate::client::{handle_client, ClientArgs};
 use crate::logger::Logger;
-use crate::util::{get_kernel_version, get_tcp_congestion_control};
+use crate::util::{get_kernel_version, get_tcp_congestion_control, DynamicValue, DEFAULT_BUS_SIZE};
+use external::{deploy_external_interface, ClientMetrics, ExternalInterfaceArgs};
 
 mod client;
 mod external;
@@ -20,6 +19,31 @@ mod parse;
 mod util;
 
 use parse::{Arguments, FlattenedArguments};
+
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum TransmissionType {
+    Bbr,
+    Cubic,
+    PbeInit,
+    PbeUpper,
+    PbeInitAndUpper,
+    PbeDirect,
+}
+
+impl TransmissionType {
+    pub fn is_pbe(&self) -> bool {
+        match self {
+            TransmissionType::Bbr => false,
+            TransmissionType::Cubic => false,
+            TransmissionType::PbeInit => true,
+            TransmissionType::PbeUpper => true,
+            TransmissionType::PbeInitAndUpper => true,
+            TransmissionType::PbeDirect => true,
+        }
+    }
+}
+
 
 #[derive(Clone, Debug)]
 pub enum StatusMessage {
@@ -33,7 +57,7 @@ pub struct MainVariables {
     client_metrics: Option<Arc<Mutex<ClientMetrics>>>,
 }
 
-fn start_server(args: &FlattenedArguments, main_vars: &mut MainVariables) -> Result<(), io::Error> {
+fn start_server(args: &FlattenedArguments, main_vars: &mut MainVariables) -> Result<()> {
     if args.verbose {
         println!(
             "System Congestion Control Algorithm: \t{}",
@@ -44,7 +68,7 @@ fn start_server(args: &FlattenedArguments, main_vars: &mut MainVariables) -> Res
 
     let logger = Arc::new(Mutex::new(Logger::new().expect("Failed to create logger")));
     let listener = TcpListener::bind(&args.server_addr)?;
-    println!("Server listening on: \t\t\t{}", args.server_addr);
+    logger.lock().unwrap().log_stdout(&format!("Server listening on: \t\t\t{}", args.server_addr))?;
 
     // Pass Arc<Mutex<Logger>> to threads
     for stream in listener.incoming() {
@@ -55,6 +79,7 @@ fn start_server(args: &FlattenedArguments, main_vars: &mut MainVariables) -> Res
                     stream,
                     logger: Arc::clone(&logger),
                     client_metrics: main_vars.client_metrics.clone(),
+                    transmission_type: TransmissionType::Cubic,
                     set_initial_cwnd: None,
                     set_upper_bound_cwnd: None,
                     set_direct_cwnd: None,
@@ -94,19 +119,29 @@ fn evaluate_client_args(args: &FlattenedArguments, client_args: &mut ClientArgs)
         if req.parse(&buffer[..bytes_read]).is_ok() {
             let path = req.path.unwrap_or("/");
             match path {
-                "/init_and_upper" => {
+                "/bbr" => {
+                    client_args.transmission_type = TransmissionType::Bbr;
+                },
+                "/cubic" => {
+                    client_args.transmission_type = TransmissionType::Cubic;
+                },
+                "/pbe/init" => {
+                    client_args.transmission_type = TransmissionType::PbeInit;
+                    client_args.set_initial_cwnd = Some(DynamicValue::Dynamic);
+                },
+                "/pbe/upper" => {
+                    client_args.transmission_type = TransmissionType::PbeUpper;
+                    client_args.set_upper_bound_cwnd = Some(DynamicValue::Dynamic);
+                },
+                "/pbe/init_and_upper" => {
+                    client_args.transmission_type = TransmissionType::PbeInitAndUpper;
                     client_args.set_initial_cwnd = Some(DynamicValue::Dynamic);
                     client_args.set_upper_bound_cwnd = Some(DynamicValue::Dynamic);
-                }
-                "/init" => {
-                    client_args.set_initial_cwnd = Some(DynamicValue::Dynamic);
-                }
-                "/upper" => {
-                    client_args.set_upper_bound_cwnd = Some(DynamicValue::Dynamic);
-                }
-                "/direct" => {
+                },
+                "/pbe/direct" => {
+                    client_args.transmission_type = TransmissionType::PbeDirect;
                     client_args.set_direct_cwnd = Some(DynamicValue::Dynamic);
-                }
+                },
                 _ => {}
             }
         }

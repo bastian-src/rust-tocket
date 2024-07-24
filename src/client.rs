@@ -117,6 +117,7 @@ pub struct ClientArgs {
     pub set_initial_cwnd: Option<DynamicValue<u32>>,
     pub set_upper_bound_cwnd: Option<DynamicValue<u32>>,
     pub set_direct_cwnd: Option<DynamicValue<u32>>,
+    pub path: String,
 }
 
 fn init_dummy_data() -> Box<[u8]> {
@@ -481,7 +482,7 @@ pub fn handle_client(mut client_args: ClientArgs) -> Result<()> {
 
     logger.lock().unwrap().log_stdout(&format!("[client] tranmission finished:\n{}", &transmission))?;
     let json_str = serde_json::to_string(&transmission)?;
-    logger.lock().unwrap().log_transmission(&json_str, transmission_type)?;
+    logger.lock().unwrap().log_transmission(&json_str, client_args.path)?;
 
     Ok(())
 }

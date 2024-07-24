@@ -84,6 +84,7 @@ fn start_server(args: &FlattenedArguments, main_vars: &mut MainVariables) -> Res
                     set_upper_bound_cwnd: None,
                     set_direct_cwnd: None,
                     transmission_duration_ms: args.default_transmission_duration_ms,
+                    path: "".to_owned(),
                 };
                 evaluate_client_args(args, &mut client_args);
                 thread::spawn(move || {
@@ -119,6 +120,7 @@ fn evaluate_client_args(args: &FlattenedArguments, client_args: &mut ClientArgs)
 
         if req.parse(&buffer[..bytes_read]).is_ok() {
             let path = req.path.unwrap_or("/");
+            client_args.path = path.to_owned();
             match path {
                 "/10s/bbr" => {
                     client_args.transmission_type = TransmissionType::Bbr;
@@ -220,7 +222,9 @@ fn evaluate_client_args(args: &FlattenedArguments, client_args: &mut ClientArgs)
                     client_args.set_direct_cwnd = Some(DynamicValue::Dynamic);
                     client_args.transmission_duration_ms = 60000;
                 },
-                _ => {}
+                _ => {
+                    client_args.path = "".to_owned();
+                }
             }
         }
     }

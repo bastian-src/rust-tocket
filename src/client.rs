@@ -113,6 +113,7 @@ pub struct ClientArgs {
     pub logger: Arc<Mutex<Logger>>,
     pub client_metrics: Option<Arc<Mutex<ClientMetrics>>>,
     pub transmission_type: TransmissionType,
+    pub transmission_duration_ms: u64,
     pub set_initial_cwnd: Option<DynamicValue<u32>>,
     pub set_upper_bound_cwnd: Option<DynamicValue<u32>>,
     pub set_direct_cwnd: Option<DynamicValue<u32>>,
@@ -325,7 +326,7 @@ pub fn handle_client(mut client_args: ClientArgs) -> Result<()> {
     let set_initial_cwnd = client_args.set_initial_cwnd;
     let set_direct_cwnd = client_args.set_direct_cwnd;
     let logging_interval_us = client_args.args.logging_interval_us;
-    let transmission_duration_ms = client_args.args.transmission_duration_ms;
+    let transmission_duration_ms = client_args.transmission_duration_ms;
     let logger: &mut Arc<Mutex<Logger>> = &mut client_args.logger;
     let socket_file_descriptor: i32 = stream.as_raw_fd();
 

@@ -40,7 +40,7 @@ pub struct Arguments {
 
     /// Lenght of the transmission in ms
     #[clap(short, long)]
-    pub transmission_duration_ms: Option<u64>,
+    pub default_transmission_duration_ms: Option<u64>,
 
     /// Logging interval
     #[clap(short, long)]
@@ -62,7 +62,7 @@ pub struct FlattenedArguments {
     pub initial_cwnd: Option<u32>,
     pub direct_cwnd: Option<u32>,
     pub upper_bound_cwnd: Option<u32>,
-    pub transmission_duration_ms: u64,
+    pub default_transmission_duration_ms: u64,
     pub logging_interval_us: u64,
     pub external_interface: bool,
     pub external_interface_addr: String,
@@ -76,7 +76,7 @@ impl default::Default for Arguments {
             initial_cwnd: DEFAULT_INITIAL_CWND,
             direct_cwnd: DEFAULT_DIRECT_CWND,
             upper_bound_cwnd: DEFAULT_UPPER_BOUND_CWND,
-            transmission_duration_ms: DEFAULT_TRANSMISSION_DURATION_MS,
+            default_transmission_duration_ms: DEFAULT_TRANSMISSION_DURATION_MS,
             logging_interval_us: DEFAULT_LOGGING_INTERVAL_US,
             external_interface: DEFAULT_EXTERNAL_INTERFACE,
             external_interface_addr: Some(DEFAULT_EXTERNAL_INTERFACE_ADDR.to_string()),
@@ -115,9 +115,9 @@ impl Arguments {
         self.initial_cwnd = self.initial_cwnd.or(config_file.initial_cwnd);
         self.direct_cwnd = self.direct_cwnd.or(config_file.direct_cwnd);
         self.upper_bound_cwnd = self.upper_bound_cwnd.or(config_file.upper_bound_cwnd);
-        self.transmission_duration_ms = self
-            .transmission_duration_ms
-            .or(config_file.transmission_duration_ms);
+        self.default_transmission_duration_ms = self
+            .default_transmission_duration_ms
+            .or(config_file.default_transmission_duration_ms);
         self.logging_interval_us = self.logging_interval_us.or(config_file.logging_interval_us);
         self.external_interface = self.external_interface.or(config_file.external_interface);
         self.external_interface_addr = self
@@ -159,7 +159,7 @@ impl FlattenedArguments {
             initial_cwnd: args.initial_cwnd,
             direct_cwnd: args.direct_cwnd,
             upper_bound_cwnd: args.upper_bound_cwnd,
-            transmission_duration_ms: args.transmission_duration_ms.unwrap(),
+            default_transmission_duration_ms: args.default_transmission_duration_ms.unwrap(),
             logging_interval_us: args.logging_interval_us.unwrap(),
             external_interface: args.external_interface.unwrap(),
             external_interface_addr: args.external_interface_addr.unwrap(),

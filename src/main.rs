@@ -83,6 +83,7 @@ fn start_server(args: &FlattenedArguments, main_vars: &mut MainVariables) -> Res
                     set_initial_cwnd: None,
                     set_upper_bound_cwnd: None,
                     set_direct_cwnd: None,
+                    transmission_duration_ms: args.default_transmission_duration_ms,
                 };
                 evaluate_client_args(args, &mut client_args);
                 thread::spawn(move || {
@@ -119,28 +120,63 @@ fn evaluate_client_args(args: &FlattenedArguments, client_args: &mut ClientArgs)
         if req.parse(&buffer[..bytes_read]).is_ok() {
             let path = req.path.unwrap_or("/");
             match path {
-                "/bbr" => {
+                "/10s/bbr" => {
                     client_args.transmission_type = TransmissionType::Bbr;
+                    client_args.transmission_duration_ms = 10000;
                 },
-                "/cubic" => {
+                "/10s/cubic" => {
                     client_args.transmission_type = TransmissionType::Cubic;
+                    client_args.transmission_duration_ms = 10000;
                 },
-                "/pbe/init" => {
+                "/10s/pbe/fair0/init" => {
                     client_args.transmission_type = TransmissionType::PbeInit;
                     client_args.set_initial_cwnd = Some(DynamicValue::Dynamic);
+                    client_args.transmission_duration_ms = 10000;
                 },
-                "/pbe/upper" => {
+                "/10s/pbe/fair0/upper" => {
                     client_args.transmission_type = TransmissionType::PbeUpper;
                     client_args.set_upper_bound_cwnd = Some(DynamicValue::Dynamic);
+                    client_args.transmission_duration_ms = 10000;
                 },
-                "/pbe/init_and_upper" => {
+                "/10s/pbe/fair0/init_and_upper" => {
                     client_args.transmission_type = TransmissionType::PbeInitAndUpper;
                     client_args.set_initial_cwnd = Some(DynamicValue::Dynamic);
                     client_args.set_upper_bound_cwnd = Some(DynamicValue::Dynamic);
+                    client_args.transmission_duration_ms = 10000;
                 },
-                "/pbe/direct" => {
+                "/10s/pbe/fair0/direct" => {
                     client_args.transmission_type = TransmissionType::PbeDirect;
                     client_args.set_direct_cwnd = Some(DynamicValue::Dynamic);
+                    client_args.transmission_duration_ms = 10000;
+                },
+                "/60s/bbr" => {
+                    client_args.transmission_type = TransmissionType::Bbr;
+                    client_args.transmission_duration_ms = 60000;
+                },
+                "/60s/cubic" => {
+                    client_args.transmission_type = TransmissionType::Cubic;
+                    client_args.transmission_duration_ms = 60000;
+                },
+                "/60s/pbe/fair0/init" => {
+                    client_args.transmission_type = TransmissionType::PbeInit;
+                    client_args.set_initial_cwnd = Some(DynamicValue::Dynamic);
+                    client_args.transmission_duration_ms = 60000;
+                },
+                "/60s/pbe/fair0/upper" => {
+                    client_args.transmission_type = TransmissionType::PbeUpper;
+                    client_args.set_upper_bound_cwnd = Some(DynamicValue::Dynamic);
+                    client_args.transmission_duration_ms = 60000;
+                },
+                "/60s/pbe/fair0/init_and_upper" => {
+                    client_args.transmission_type = TransmissionType::PbeInitAndUpper;
+                    client_args.set_initial_cwnd = Some(DynamicValue::Dynamic);
+                    client_args.set_upper_bound_cwnd = Some(DynamicValue::Dynamic);
+                    client_args.transmission_duration_ms = 60000;
+                },
+                "/60s/pbe/fair0/direct" => {
+                    client_args.transmission_type = TransmissionType::PbeDirect;
+                    client_args.set_direct_cwnd = Some(DynamicValue::Dynamic);
+                    client_args.transmission_duration_ms = 60000;
                 },
                 _ => {}
             }

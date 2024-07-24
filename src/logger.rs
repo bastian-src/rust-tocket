@@ -4,7 +4,7 @@ use std::io::{self, Write};
 
 use crate::TransmissionType;
 
-const LOGS_DIRECTORY: &str = ".logs";
+const LOGS_DIRECTORY: &str = ".logs.tocket";
 
 #[derive(Debug)]
 pub struct Logger {

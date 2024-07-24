@@ -149,6 +149,27 @@ fn evaluate_client_args(args: &FlattenedArguments, client_args: &mut ClientArgs)
                     client_args.set_direct_cwnd = Some(DynamicValue::Dynamic);
                     client_args.transmission_duration_ms = 10000;
                 },
+                "/10s/pbe/fair1/init" => {
+                    client_args.transmission_type = TransmissionType::PbeInit;
+                    client_args.set_initial_cwnd = Some(DynamicValue::Dynamic);
+                    client_args.transmission_duration_ms = 10000;
+                },
+                "/10s/pbe/fair1/upper" => {
+                    client_args.transmission_type = TransmissionType::PbeUpper;
+                    client_args.set_upper_bound_cwnd = Some(DynamicValue::Dynamic);
+                    client_args.transmission_duration_ms = 10000;
+                },
+                "/10s/pbe/fair1/init_and_upper" => {
+                    client_args.transmission_type = TransmissionType::PbeInitAndUpper;
+                    client_args.set_initial_cwnd = Some(DynamicValue::Dynamic);
+                    client_args.set_upper_bound_cwnd = Some(DynamicValue::Dynamic);
+                    client_args.transmission_duration_ms = 10000;
+                },
+                "/10s/pbe/fair1/direct" => {
+                    client_args.transmission_type = TransmissionType::PbeDirect;
+                    client_args.set_direct_cwnd = Some(DynamicValue::Dynamic);
+                    client_args.transmission_duration_ms = 10000;
+                },
                 "/60s/bbr" => {
                     client_args.transmission_type = TransmissionType::Bbr;
                     client_args.transmission_duration_ms = 60000;
@@ -174,6 +195,27 @@ fn evaluate_client_args(args: &FlattenedArguments, client_args: &mut ClientArgs)
                     client_args.transmission_duration_ms = 60000;
                 },
                 "/60s/pbe/fair0/direct" => {
+                    client_args.transmission_type = TransmissionType::PbeDirect;
+                    client_args.set_direct_cwnd = Some(DynamicValue::Dynamic);
+                    client_args.transmission_duration_ms = 60000;
+                },
+                "/60s/pbe/fair1/init" => {
+                    client_args.transmission_type = TransmissionType::PbeInit;
+                    client_args.set_initial_cwnd = Some(DynamicValue::Dynamic);
+                    client_args.transmission_duration_ms = 60000;
+                },
+                "/60s/pbe/fair1/upper" => {
+                    client_args.transmission_type = TransmissionType::PbeUpper;
+                    client_args.set_upper_bound_cwnd = Some(DynamicValue::Dynamic);
+                    client_args.transmission_duration_ms = 60000;
+                },
+                "/60s/pbe/fair1/init_and_upper" => {
+                    client_args.transmission_type = TransmissionType::PbeInitAndUpper;
+                    client_args.set_initial_cwnd = Some(DynamicValue::Dynamic);
+                    client_args.set_upper_bound_cwnd = Some(DynamicValue::Dynamic);
+                    client_args.transmission_duration_ms = 60000;
+                },
+                "/60s/pbe/fair1/direct" => {
                     client_args.transmission_type = TransmissionType::PbeDirect;
                     client_args.set_direct_cwnd = Some(DynamicValue::Dynamic);
                     client_args.transmission_duration_ms = 60000;

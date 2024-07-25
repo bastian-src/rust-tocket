@@ -1,5 +1,5 @@
 use crate::{client::TcpStatsLog, TransmissionType};
-use std::{collections::HashMap, ffi::{CString, CStr}};
+use std::{collections::HashMap, ffi::{CString, CStr}, fs::File, io::{Write, Read}};
 use sysctl::Sysctl;
 use anyhow::{anyhow, Result};
 use libc::{c_void, getsockopt, setsockopt, socklen_t, TCP_INFO, TCP_CONGESTION};
@@ -7,10 +7,14 @@ use std::mem;
 
 pub const DEFAULT_BUS_SIZE: usize = 100;
 pub const THREAD_SLEEP_TIME_SHORT_US: u64 = 10;
+pub const THREAD_SLEEP_TIME_SHORT_MS: u64 = 10;
 pub const THREAD_SLEEP_FINISH_MS: u64 = 1000;
 
 pub const CONSTANT_BIT_TO_BYTE: u64 = 8;
-pub const CONSTANT_US_TO_MS: u64 = 1000;
+pub const CONSTANT_US_TO_MS: u64 = 3000;
+
+pub const PROC_PATH_TCP_CUBIC_TCP_FRIENDLINESS: &str = "/sys/module/tcp_cubic/parameters/tcp_friendliness";
+
 
 #[derive(Debug, Clone)]
 pub enum DynamicValue<T> {
@@ -219,14 +223,78 @@ pub fn sockopt_patch_cwnd(socket_file_descriptor: i32, upper_cwnd: u32, patch_ty
     Ok(())
 }
 
-pub fn sockopt_set_cc(
+pub fn sockopt_prepare_transmission(
     socket_file_descriptor: i32,
-    transmission_type: &TransmissionType
+    transmission_type: &TransmissionType,
 ) -> Result<()> {
+    /* Set CC */
     let cc_name = match transmission_type {
+        TransmissionType::Reno => "reno",
         TransmissionType::Bbr => "bbr",
         _ => "cubic",
     };
+    sockopt_set_cc(socket_file_descriptor, cc_name)?;
+
+    /* Set TCP Friendliness */
+    let tcp_friendliness_option: Option<&str> = match transmission_type {
+        TransmissionType::Bbr |
+        TransmissionType::Reno => {
+            None
+        }
+        TransmissionType::CubicFriendly |
+        TransmissionType::L2BFriendlyFair0Init |
+        TransmissionType::L2BFriendlyFair0Upper |
+        TransmissionType::L2BFriendlyFair0InitAndUpper |
+        TransmissionType::L2BFriendlyFair0Direct |
+        TransmissionType::L2BFriendlyFair1Init |
+        TransmissionType::L2BFriendlyFair1Upper |
+        TransmissionType::L2BFriendlyFair1InitAndUpper |
+        TransmissionType::L2BFriendlyFair1Direct => {
+            Some("1")
+        }
+        TransmissionType::CubicUnfriendly |
+        TransmissionType::L2BUnfriendlyFair0Init |
+        TransmissionType::L2BUnfriendlyFair0Upper |
+        TransmissionType::L2BUnfriendlyFair0InitAndUpper |
+        TransmissionType::L2BUnfriendlyFair0Direct |
+        TransmissionType::L2BUnfriendlyFair1Init |
+        TransmissionType::L2BUnfriendlyFair1Upper |
+        TransmissionType::L2BUnfriendlyFair1InitAndUpper |
+        TransmissionType::L2BUnfriendlyFair1Direct => {
+            Some("0")
+        }
+    };
+    if let Some(tcp_friendliness) = tcp_friendliness_option {
+        if proc_get(PROC_PATH_TCP_CUBIC_TCP_FRIENDLINESS)? != tcp_friendliness {
+            proc_set_u8(PROC_PATH_TCP_CUBIC_TCP_FRIENDLINESS, tcp_friendliness)?;
+        }
+    }
+    Ok(())
+}
+
+pub fn proc_set_u8(
+    path: &str,
+    value: &str,
+) -> Result<()> {
+    let mut file = File::create(path).map_err(|e| anyhow!("[proc_set_u8] error creating file reference '{}': {}", path, e))?;
+    let write_buffer = value.to_string();
+    file.write_all(write_buffer.as_bytes()).map_err(|e| anyhow!("[proc_set_u8] error writing file '{}': {}", path, e))?;
+    Ok(())
+}
+
+pub fn proc_get(
+    path: &str,
+) -> Result<String> {
+    let mut file = File::open(path).map_err(|e| anyhow!("[proc_get] error opening file '{}': {}", path, e))?;
+    let mut read_buffer = String::new();
+    file.read_to_string(&mut read_buffer)?;
+    Ok(read_buffer.trim().to_string())
+}
+
+pub fn sockopt_set_cc(
+    socket_file_descriptor: i32,
+    cc_name: &str,
+) -> Result<()> {
     let cc_name_cstr = CString::new(cc_name).map_err(|_| anyhow!("Failed to convert cc_name to CString"))?;
 
     // Set the congestion control algorithm using setsockopt

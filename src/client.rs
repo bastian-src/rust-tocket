@@ -25,7 +25,6 @@ use crate::util::DynamicValue;
 use crate::util::THREAD_SLEEP_FINISH_MS;
 use crate::util::THREAD_SLEEP_TIME_SHORT_US;
 use crate::util::get_active_cca;
-use crate::util::sockopt_get_latest_tcp_info;
 use crate::util::sockopt_get_tcp_info;
 use crate::util::sockopt_patch_cwnd;
 use crate::util::sockopt_set_cc;
@@ -45,11 +44,6 @@ pub struct Transmission {
     pub client_ip: String,
     pub transmission_type: TransmissionType,
     pub transmission_duration_ms: u64,
-    pub total_bytes_acked: u64,
-    pub total_bytes_sent: u64,
-    pub tenth_percentile_bytes_acked: u64,
-    pub tenth_percentile_bytes_sent: u64,
-    pub tenth_percentile_time_diff_us: u64,
     pub start_timestamp_us: u64,
     pub end_timestamp_us: u64,
     pub min_rtt_us: u64,
@@ -67,30 +61,19 @@ impl fmt::Display for Transmission {
             "\tClient IP:         {}\n\
              \tTransmission Type: {:?}\n\
              \tDuration (ms):     {}\n\
-             \tBytes Sent:        {}\n\
-             \tBytes Acked:       {}\n\
-             \t10th Bytes Sent:   {}\n\
-             \t10th Bytes Acked:  {}\n\
              \tRTT Mean:          {:?}\n\
              \tCWND Mean:         {:?}\n\
              \tRTT Median:        {:?}\n\
              \tCWND Median:       {:?}\n\
-             \tTimedata Size:     {}\n\
-             \tAverage rate:      {:3.3?} Mibit/s",
+             \tTimedata Size:     {}",
             self.client_ip,
             self.transmission_type,
             self.transmission_duration_ms,
-            self.total_bytes_sent,
-            self.total_bytes_acked,
-            self.tenth_percentile_bytes_sent,
-            self.tenth_percentile_bytes_acked,
             self.rtt_mean,
             self.cwnd_mean,
             self.rtt_median,
             self.cwnd_median,
             self.timedata.len(),
-            (self.total_bytes_sent as f64 * 8.0 / (1024.0 * 1024.0))
-                / (self.transmission_duration_ms as f64 / 1000.0),
         )
     }
 }
@@ -99,8 +82,6 @@ impl fmt::Display for Transmission {
 pub struct TcpStatsLog {
     pub rtt: u32,
     pub cwnd: u32,
-    pub bytes_acked: u64,
-    pub bytes_sent: u64,
     pub set_initital_cwnd: Option<u32>,
     pub set_upper_cwnd: Option<u32>,
     pub set_direct_cwnd: Option<u32>,
@@ -450,14 +431,6 @@ pub fn handle_client(mut client_args: ClientArgs) -> Result<()> {
 
     thread::sleep(Duration::from_millis(THREAD_SLEEP_FINISH_MS));
 
-    let final_tcp_info = sockopt_get_latest_tcp_info(socket_file_descriptor)?;
-    let total_bytes_acked = final_tcp_info.tcpi_bytes_acked;
-    let total_bytes_sent = final_tcp_info.tcpi_bytes_sent;
-    let (tenth_percentile_index, tenth_percentile_item) = get_tenth_percentile_entry(&timedata)?;
-    let tenth_percentile_bytes_acked = tenth_percentile_item.bytes_acked;
-    let tenth_percentile_bytes_sent = tenth_percentile_item.bytes_sent;
-    let tenth_percentile_time_diff_us = tenth_percentile_index - start_timestamp_us;
-
     finish_transmission(&mut joined_stream)?;
 
     let (rtt_mean, cwnd_mean, rtt_median, cwnd_median) = calculate_statistics(&timedata);
@@ -468,11 +441,6 @@ pub fn handle_client(mut client_args: ClientArgs) -> Result<()> {
         start_timestamp_us,
         end_timestamp_us,
         transmission_duration_ms,
-        total_bytes_acked,
-        total_bytes_sent,
-        tenth_percentile_bytes_acked,
-        tenth_percentile_bytes_sent,
-        tenth_percentile_time_diff_us,
         rtt_mean,
         cwnd_mean,
         rtt_median,
@@ -558,19 +526,15 @@ fn append_tcp_info_to_stats_log(
     upper_cwnd_option: Option<u32>,
     direct_cwnd_option: Option<u32>,
 ) -> Result<()> {
-    let latest_tcp_info = sockopt_get_latest_tcp_info(socket_file_descriptor)?;
+    let latest_tcp_info = sockopt_get_tcp_info(socket_file_descriptor)?;
 
     let timestamp_us = chrono::Utc::now().timestamp_micros() as u64;
     let rtt = latest_tcp_info.tcpi_rtt;
     let cwnd = latest_tcp_info.tcpi_snd_cwnd;
-    let bytes_acked = latest_tcp_info.tcpi_bytes_acked;
-    let bytes_sent = latest_tcp_info.tcpi_bytes_sent;
 
     timedata.insert(timestamp_us, TcpStatsLog {
         rtt,
         cwnd,
-        bytes_acked,
-        bytes_sent,
         set_initital_cwnd: initial_cwnd_option,
         set_upper_cwnd: upper_cwnd_option,
         set_direct_cwnd: direct_cwnd_option,
@@ -578,10 +542,3 @@ fn append_tcp_info_to_stats_log(
     Ok(())
 }
 
-fn get_tenth_percentile_entry(map: &HashMap<u64, TcpStatsLog>) -> Result<(&u64, &TcpStatsLog)> {
-    let mut entries: Vec<(&u64, &TcpStatsLog)> = map.iter().collect();
-    entries.sort_by_key(|entry| entry.0);
-    let tenth_percentile_index = (entries.len() as f64 * 0.1).floor() as usize;
-
-    Ok(entries.get(tenth_percentile_index).copied().unwrap())
-}

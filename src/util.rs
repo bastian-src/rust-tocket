@@ -298,7 +298,7 @@ pub fn sockopt_get_tcp_info(socket_file_descriptor: i32) -> Result<StockTcpInfo>
     Ok(tcp_info)
 }
 
-pub fn sockopt_get_latest_tcp_info(socket_file_descriptor: i32) -> Result<LatestTcpInfo> {
+pub fn _sockopt_get_latest_tcp_info(socket_file_descriptor: i32) -> Result<LatestTcpInfo> {
     let mut tcp_info: LatestTcpInfo = LatestTcpInfo::default();
     let mut tcp_info_len = mem::size_of::<LatestTcpInfo>() as socklen_t;
 

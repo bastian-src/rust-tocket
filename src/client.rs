@@ -347,28 +347,28 @@ pub fn handle_client(mut client_args: ClientArgs) -> Result<()> {
     if uses_external {
         wait_until_client_metric(&client_metrics.clone().unwrap(), &client_addr);
     }
-    if transmission_type.is_l2b() {
-        let initial_cwnd_option = if let Some(initial_cwnd_dyn) = set_initial_cwnd.clone() {
-            patch_initial_cwnd(initial_cwnd_dyn, socket_file_descriptor, &client_metrics, &client_addr)?
-        } else {
-            None
-        };
-        let upper_cwnd_option = if let Some(upper_cwnd_dyn) = set_upper_bound_cwnd.clone() {
-            patch_upper_cwnd(upper_cwnd_dyn, socket_file_descriptor, &client_metrics, &client_addr)?
-        } else {
-            None
-        };
-        let direct_cwnd_option = if let Some(direct_cwnd_dyn) = set_direct_cwnd.clone() {
-            patch_direct_cwnd(direct_cwnd_dyn, socket_file_descriptor, &client_metrics, &client_addr)?
-        } else {
-            None
-        };
-        append_tcp_info_to_stats_log(socket_file_descriptor,
-                                     &mut timedata,
-                                     initial_cwnd_option,
-                                     upper_cwnd_option,
-                                     direct_cwnd_option)?;
-    }
+
+    let initial_cwnd_option = if let Some(initial_cwnd_dyn) = set_initial_cwnd.clone() {
+        patch_initial_cwnd(initial_cwnd_dyn, socket_file_descriptor, &client_metrics, &client_addr)?
+    } else {
+        None
+    };
+    let upper_cwnd_option = if let Some(upper_cwnd_dyn) = set_upper_bound_cwnd.clone() {
+        patch_upper_cwnd(upper_cwnd_dyn, socket_file_descriptor, &client_metrics, &client_addr)?
+    } else {
+        None
+    };
+    let direct_cwnd_option = if let Some(direct_cwnd_dyn) = set_direct_cwnd.clone() {
+        patch_direct_cwnd(direct_cwnd_dyn, socket_file_descriptor, &client_metrics, &client_addr)?
+    } else {
+        None
+    };
+    append_tcp_info_to_stats_log(socket_file_descriptor,
+                                 &mut timedata,
+                                 initial_cwnd_option,
+                                 upper_cwnd_option,
+                                 direct_cwnd_option)?;
+
 
     let min_rtt_us: u64 = sockopt_get_tcp_info(socket_file_descriptor)?.tcpi_rtt as u64;
 

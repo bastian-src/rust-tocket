@@ -27,28 +27,22 @@ pub enum TransmissionType {
 
     Reno,
 
-    CubicFriendly,
-    CubicUnfriendly,
+    Cubic,
 
-    L2BFriendlyFair0Init,
-    L2BFriendlyFair0Upper,
-    L2BFriendlyFair0InitAndUpper,
-    L2BFriendlyFair0Direct,
+    L2BFair0Init,
+    L2BFair0Upper,
+    L2BFair0InitAndUpper,
+    L2BFair0Direct,
 
-    L2BFriendlyFair1Init,
-    L2BFriendlyFair1Upper,
-    L2BFriendlyFair1InitAndUpper,
-    L2BFriendlyFair1Direct,
+    L2BFair1Init,
+    L2BFair1Upper,
+    L2BFair1InitAndUpper,
+    L2BFair1Direct,
 
-    L2BUnfriendlyFair0Init,
-    L2BUnfriendlyFair0Upper,
-    L2BUnfriendlyFair0InitAndUpper,
-    L2BUnfriendlyFair0Direct,
-
-    L2BUnfriendlyFair1Init,
-    L2BUnfriendlyFair1Upper,
-    L2BUnfriendlyFair1InitAndUpper,
-    L2BUnfriendlyFair1Direct,
+    L2BFair2Init,
+    L2BFair2Upper,
+    L2BFair2InitAndUpper,
+    L2BFair2Direct,
 }
 
 impl TransmissionType {
@@ -58,28 +52,22 @@ impl TransmissionType {
 
             TransmissionType::Reno,
 
-            TransmissionType::CubicFriendly,
-            TransmissionType::CubicUnfriendly,
+            TransmissionType::Cubic,
 
-            TransmissionType::L2BFriendlyFair0Init,
-            TransmissionType::L2BFriendlyFair0Upper,
-            TransmissionType::L2BFriendlyFair0InitAndUpper,
-            TransmissionType::L2BFriendlyFair0Direct,
+            TransmissionType::L2BFair0Init,
+            TransmissionType::L2BFair0Upper,
+            TransmissionType::L2BFair0InitAndUpper,
+            TransmissionType::L2BFair0Direct,
 
-            TransmissionType::L2BFriendlyFair1Init,
-            TransmissionType::L2BFriendlyFair1Upper,
-            TransmissionType::L2BFriendlyFair1InitAndUpper,
-            TransmissionType::L2BFriendlyFair1Direct,
+            TransmissionType::L2BFair1Init,
+            TransmissionType::L2BFair1Upper,
+            TransmissionType::L2BFair1InitAndUpper,
+            TransmissionType::L2BFair1Direct,
 
-            TransmissionType::L2BUnfriendlyFair0Init,
-            TransmissionType::L2BUnfriendlyFair0Upper,
-            TransmissionType::L2BUnfriendlyFair0InitAndUpper,
-            TransmissionType::L2BUnfriendlyFair0Direct,
-
-            TransmissionType::L2BUnfriendlyFair1Init,
-            TransmissionType::L2BUnfriendlyFair1Upper,
-            TransmissionType::L2BUnfriendlyFair1InitAndUpper,
-            TransmissionType::L2BUnfriendlyFair1Direct,
+            TransmissionType::L2BFair2Init,
+            TransmissionType::L2BFair2Upper,
+            TransmissionType::L2BFair2InitAndUpper,
+            TransmissionType::L2BFair2Direct,
         ]
     }
 
@@ -87,36 +75,29 @@ impl TransmissionType {
         !matches!(self,
             TransmissionType::Reno |
             TransmissionType::Bbr |
-            TransmissionType::CubicFriendly |
-            TransmissionType::CubicUnfriendly)
+            TransmissionType::Cubic)
     }
 
     pub fn path(&self) -> &str {
         match self {
             TransmissionType::Bbr => "/bbr",
             TransmissionType::Reno => "/reno",
-            TransmissionType::CubicFriendly => "/cubic/friendly",
-            TransmissionType::CubicUnfriendly => "/cubic/unfriendly",
+            TransmissionType::Cubic=> "/cubic",
 
-            TransmissionType::L2BFriendlyFair0Init => "/l2b/friendly/fair0/init",
-            TransmissionType::L2BFriendlyFair0Upper => "/l2b/friendly/fair0/upper",
-            TransmissionType::L2BFriendlyFair0InitAndUpper => "/l2b/friendly/fair0/init_and_upper",
-            TransmissionType::L2BFriendlyFair0Direct => "/l2b/friendly/fair0/direct",
+            TransmissionType::L2BFair0Init => "/l2b/fair0/init",
+            TransmissionType::L2BFair0Upper => "/l2b/fair0/upper",
+            TransmissionType::L2BFair0InitAndUpper => "/l2b/fair0/init_and_upper",
+            TransmissionType::L2BFair0Direct => "/l2b/fair0/direct",
 
-            TransmissionType::L2BFriendlyFair1Init => "/l2b/friendly/fair1/init",
-            TransmissionType::L2BFriendlyFair1Upper => "/l2b/friendly/fair1/upper",
-            TransmissionType::L2BFriendlyFair1InitAndUpper => "/l2b/friendly/fair1/init_and_upper",
-            TransmissionType::L2BFriendlyFair1Direct => "/l2b/friendly/fair1/direct",
+            TransmissionType::L2BFair1Init => "/l2b/fair1/init",
+            TransmissionType::L2BFair1Upper => "/l2b/fair1/upper",
+            TransmissionType::L2BFair1InitAndUpper => "/l2b/fair1/init_and_upper",
+            TransmissionType::L2BFair1Direct => "/l2b/fair1/direct",
 
-            TransmissionType::L2BUnfriendlyFair0Init => "/l2b/unfriendly/fair0/init",
-            TransmissionType::L2BUnfriendlyFair0Upper => "/l2b/unfriendly/fair0/upper",
-            TransmissionType::L2BUnfriendlyFair0InitAndUpper => "/l2b/unfriendly/fair0/init_and_upper",
-            TransmissionType::L2BUnfriendlyFair0Direct => "/l2b/unfriendly/fair0/direct",
-
-            TransmissionType::L2BUnfriendlyFair1Init => "/l2b/unfriendly/fair1/init",
-            TransmissionType::L2BUnfriendlyFair1Upper => "/l2b/unfriendly/fair1/upper",
-            TransmissionType::L2BUnfriendlyFair1InitAndUpper => "/l2b/unfriendly/fair1/init_and_upper",
-            TransmissionType::L2BUnfriendlyFair1Direct => "/l2b/unfriendly/fair1/direct",
+            TransmissionType::L2BFair2Init => "/l2b/fair2/init",
+            TransmissionType::L2BFair2Upper => "/l2b/fair2/upper",
+            TransmissionType::L2BFair2InitAndUpper => "/l2b/fair2/init_and_upper",
+            TransmissionType::L2BFair2Direct => "/l2b/fair2/direct",
         }
     }
 
@@ -166,7 +147,7 @@ fn start_server(args: &FlattenedArguments, main_vars: &mut MainVariables) -> Res
                     stream,
                     logger: Arc::clone(&logger),
                     client_metrics: main_vars.client_metrics.clone(),
-                    transmission_type: TransmissionType::CubicFriendly,
+                    transmission_type: TransmissionType::Cubic,
                     set_initial_cwnd: None,
                     set_upper_bound_cwnd: None,
                     set_direct_cwnd: None,
@@ -231,33 +212,32 @@ fn evaluate_client_args(logger: Arc<Mutex<Logger>>, args: &FlattenedArguments, c
             if let Some(algo_item) = TransmissionType::from_path(path_algo) {
                 client_args.transmission_type = algo_item.clone();
                 match algo_item {
-                    TransmissionType::Bbr => {},
-                    TransmissionType::Reno => {},
-                    TransmissionType::CubicFriendly => {},
-                    TransmissionType::CubicUnfriendly => {},
-                    TransmissionType::L2BFriendlyFair0Init |
-                    TransmissionType::L2BFriendlyFair1Init |
-                    TransmissionType::L2BUnfriendlyFair0Init |
-                    TransmissionType::L2BUnfriendlyFair1Init => {
+                    TransmissionType::Bbr |
+                    TransmissionType::Reno |
+                    TransmissionType::Cubic => {},
+
+                    TransmissionType::L2BFair0Init |
+                    TransmissionType::L2BFair1Init |
+                    TransmissionType::L2BFair2Init => {
                         client_args.set_initial_cwnd = Some(DynamicValue::Dynamic);
                     }
-                    TransmissionType::L2BFriendlyFair0Upper |
-                    TransmissionType::L2BFriendlyFair1Upper |
-                    TransmissionType::L2BUnfriendlyFair0Upper |
-                    TransmissionType::L2BUnfriendlyFair1Upper => {
+
+                    TransmissionType::L2BFair0Upper |
+                    TransmissionType::L2BFair1Upper |
+                    TransmissionType::L2BFair2Upper => {
                         client_args.set_upper_bound_cwnd = Some(DynamicValue::Dynamic);
                     }
-                    TransmissionType::L2BFriendlyFair0InitAndUpper |
-                    TransmissionType::L2BFriendlyFair1InitAndUpper |
-                    TransmissionType::L2BUnfriendlyFair0InitAndUpper |
-                    TransmissionType::L2BUnfriendlyFair1InitAndUpper => {
+
+                    TransmissionType::L2BFair0InitAndUpper |
+                    TransmissionType::L2BFair1InitAndUpper |
+                    TransmissionType::L2BFair2InitAndUpper => {
                         client_args.set_initial_cwnd = Some(DynamicValue::Dynamic);
                         client_args.set_upper_bound_cwnd = Some(DynamicValue::Dynamic);
                     }
-                    TransmissionType::L2BFriendlyFair0Direct |
-                    TransmissionType::L2BFriendlyFair1Direct |
-                    TransmissionType::L2BUnfriendlyFair0Direct |
-                    TransmissionType::L2BUnfriendlyFair1Direct => {
+
+                    TransmissionType::L2BFair0Direct |
+                    TransmissionType::L2BFair1Direct |
+                    TransmissionType::L2BFair2Direct => {
                         client_args.set_direct_cwnd = Some(DynamicValue::Dynamic);
                     }
                 }

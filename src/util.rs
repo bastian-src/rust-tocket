@@ -13,6 +13,8 @@ pub const THREAD_SLEEP_FINISH_MS: u64 = 1000;
 pub const CONSTANT_BIT_TO_BYTE: u64 = 8;
 pub const CONSTANT_US_TO_MS: u64 = 3000;
 
+#[allow(dead_code)]
+/// Use this in combination with proc_set_u8() to adapt the tcp_friendliness behavior of CUBIC
 pub const PROC_PATH_TCP_CUBIC_TCP_FRIENDLINESS: &str = "/sys/module/tcp_cubic/parameters/tcp_friendliness";
 
 
@@ -234,44 +236,10 @@ pub fn sockopt_prepare_transmission(
         _ => "cubic",
     };
     sockopt_set_cc(socket_file_descriptor, cc_name)?;
-
-    /* Set TCP Friendliness */
-    let tcp_friendliness_option: Option<&str> = match transmission_type {
-        TransmissionType::Bbr |
-        TransmissionType::Reno => {
-            None
-        }
-        TransmissionType::CubicFriendly |
-        TransmissionType::L2BFriendlyFair0Init |
-        TransmissionType::L2BFriendlyFair0Upper |
-        TransmissionType::L2BFriendlyFair0InitAndUpper |
-        TransmissionType::L2BFriendlyFair0Direct |
-        TransmissionType::L2BFriendlyFair1Init |
-        TransmissionType::L2BFriendlyFair1Upper |
-        TransmissionType::L2BFriendlyFair1InitAndUpper |
-        TransmissionType::L2BFriendlyFair1Direct => {
-            Some("1")
-        }
-        TransmissionType::CubicUnfriendly |
-        TransmissionType::L2BUnfriendlyFair0Init |
-        TransmissionType::L2BUnfriendlyFair0Upper |
-        TransmissionType::L2BUnfriendlyFair0InitAndUpper |
-        TransmissionType::L2BUnfriendlyFair0Direct |
-        TransmissionType::L2BUnfriendlyFair1Init |
-        TransmissionType::L2BUnfriendlyFair1Upper |
-        TransmissionType::L2BUnfriendlyFair1InitAndUpper |
-        TransmissionType::L2BUnfriendlyFair1Direct => {
-            Some("0")
-        }
-    };
-    if let Some(tcp_friendliness) = tcp_friendliness_option {
-        if proc_get(PROC_PATH_TCP_CUBIC_TCP_FRIENDLINESS)? != tcp_friendliness {
-            proc_set_u8(PROC_PATH_TCP_CUBIC_TCP_FRIENDLINESS, tcp_friendliness)?;
-        }
-    }
     Ok(())
 }
 
+#[allow(dead_code)]
 pub fn proc_set_u8(
     path: &str,
     value: &str,
@@ -282,6 +250,7 @@ pub fn proc_set_u8(
     Ok(())
 }
 
+#[allow(dead_code)]
 pub fn proc_get(
     path: &str,
 ) -> Result<String> {

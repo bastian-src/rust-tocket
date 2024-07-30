@@ -53,6 +53,7 @@ pub struct Transmission {
     pub cwnd_mean: Option<u32>,
     pub rtt_median: Option<u32>,
     pub cwnd_median: Option<u32>,
+    pub total_packet_loss: u32,
     pub timedata: HashMap<u64, TcpStatsLog>,
 }
 
@@ -67,6 +68,7 @@ impl fmt::Display for Transmission {
              \tCWND Mean:         {:?}\n\
              \tRTT Median:        {:?}\n\
              \tCWND Median:       {:?}\n\
+             \tPacket loss:       {:?}\n\
              \tTimedata Size:     {}",
             self.client_ip,
             self.transmission_type,
@@ -75,6 +77,7 @@ impl fmt::Display for Transmission {
             self.cwnd_mean,
             self.rtt_median,
             self.cwnd_median,
+            self.total_packet_loss,
             self.timedata.len(),
         )
     }
@@ -84,6 +87,7 @@ impl fmt::Display for Transmission {
 pub struct TcpStatsLog {
     pub rtt: u32,
     pub cwnd: u32,
+    pub packet_loss: u32,
     pub set_initital_cwnd: Option<u32>,
     pub set_upper_cwnd: Option<u32>,
     pub set_direct_cwnd: Option<u32>,
@@ -436,6 +440,11 @@ pub fn handle_client(mut client_args: ClientArgs) -> Result<()> {
     finish_transmission(&mut joined_stream)?;
 
     let (rtt_mean, cwnd_mean, rtt_median, cwnd_median) = calculate_statistics(&timedata);
+    let total_packet_loss = if let Some((_, info)) = timedata.iter().max_by_key(|(&key, _)| key) {
+        info.packet_loss
+    } else {
+        0
+    };
     let transmission = Transmission {
         client_ip: client_addr.clone(),
         transmission_type: transmission_type.clone(),
@@ -447,6 +456,7 @@ pub fn handle_client(mut client_args: ClientArgs) -> Result<()> {
         cwnd_mean,
         rtt_median,
         cwnd_median,
+        total_packet_loss,
         timedata,
     };
 
@@ -590,10 +600,12 @@ fn append_tcp_info_to_stats_log(
     let timestamp_us = chrono::Local::now().timestamp_micros() as u64;
     let rtt = latest_tcp_info.tcpi_rtt;
     let cwnd = latest_tcp_info.tcpi_snd_cwnd;
+    let packet_loss = latest_tcp_info.tcpi_lost;
 
     timedata.insert(timestamp_us, TcpStatsLog {
         rtt,
         cwnd,
+        packet_loss,
         set_initital_cwnd: initial_cwnd_option,
         set_upper_cwnd: upper_cwnd_option,
         set_direct_cwnd: direct_cwnd_option,

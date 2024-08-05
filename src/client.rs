@@ -440,11 +440,11 @@ pub fn handle_client(mut client_args: ClientArgs) -> Result<()> {
     finish_transmission(&mut joined_stream)?;
 
     let (rtt_mean, cwnd_mean, rtt_median, cwnd_median) = calculate_statistics(&timedata);
-    let total_packet_loss = if let Some((_, info)) = timedata.iter().max_by_key(|(&key, _)| key) {
-        info.packet_loss
-    } else {
-        0
-    };
+    let total_packet_loss = timedata
+        .values()
+        .map(|tcp_stats| tcp_stats.packet_loss)
+        .sum::<u32>();
+
     let transmission = Transmission {
         client_ip: client_addr.clone(),
         transmission_type: transmission_type.clone(),

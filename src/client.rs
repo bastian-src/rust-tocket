@@ -292,8 +292,8 @@ fn patch_direct_cwnd_if_new_metric(
                 unpack_latest_rate(&client_metrics.clone().unwrap(), client_addr)?;
             if latest_metric.get_timestamp_us() > *last_metric_timestamp_us {
                 *last_metric_timestamp_us = latest_metric.get_timestamp_us();
-            let rate: u64 = latest_metric.get_rate();
-            rate_to_cwnd(socket_file_descriptor, rate)?
+                let rate: u64 = latest_metric.get_rate();
+                rate_to_cwnd(socket_file_descriptor, rate)?
             } else {
                 return Ok(None)
             }
@@ -380,7 +380,6 @@ pub fn handle_client(mut client_args: ClientArgs) -> Result<()> {
     let end_timestamp_us = start_timestamp_us + (transmission_duration_ms * 1000);
     let mut last_logging_timestamp_us = 0;
     let mut last_metric_timestamp_us = 0;
-    let mut last_set_cwnd_timestamp_us = 0;
 
     let mut joined_stream: TcpStream;
     let join_handle_stream: JoinHandle<Result<TcpStream>> =
@@ -405,20 +404,20 @@ pub fn handle_client(mut client_args: ClientArgs) -> Result<()> {
                                          None)?;
             last_logging_timestamp_us = now_us;
         }
-        if transmission_type.is_l2b() && now_us - last_set_cwnd_timestamp_us >= min_rtt_us {
-            last_set_cwnd_timestamp_us = chrono::Local::now().timestamp_micros() as u64;
+        if transmission_type.is_l2b() {
             if let Some(upper_cwnd_dyn) = set_upper_bound_cwnd.clone()  {
                 let upper_cwnd_option = patch_upper_cwnd_if_new_metric(upper_cwnd_dyn,
                                                socket_file_descriptor,
                                                &client_metrics,
                                                &client_addr,
                                                &mut last_metric_timestamp_us)?;
-
-                append_tcp_info_to_stats_log(socket_file_descriptor,
-                                             &mut timedata,
-                                             None,
-                                             upper_cwnd_option,
-                                             None)?;
+                if upper_cwnd_option.is_some() {
+                    append_tcp_info_to_stats_log(socket_file_descriptor,
+                                                 &mut timedata,
+                                                 None,
+                                                 upper_cwnd_option,
+                                                 None)?;
+                }
             }
             if let Some(direct_cwnd_dyn) = set_direct_cwnd.clone() {
                 let direct_cwnd_option = patch_direct_cwnd_if_new_metric(direct_cwnd_dyn,
@@ -426,14 +425,16 @@ pub fn handle_client(mut client_args: ClientArgs) -> Result<()> {
                                                 &client_metrics,
                                                 &client_addr,
                                                 &mut last_metric_timestamp_us)?;
-
-                append_tcp_info_to_stats_log(socket_file_descriptor,
-                                             &mut timedata,
-                                             None,
-                                             None,
-                                             direct_cwnd_option)?;
+                if direct_cwnd_option.is_some() {
+                    append_tcp_info_to_stats_log(socket_file_descriptor,
+                                                 &mut timedata,
+                                                 None,
+                                                 None,
+                                                 direct_cwnd_option)?;
+                }
             }
         }
+
         thread::sleep(Duration::from_micros(THREAD_SLEEP_TIME_SHORT_US));
     }
 

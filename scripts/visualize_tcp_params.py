@@ -110,7 +110,8 @@ def filter_dataset(settings, raw_dataset) -> FilteredRecording:
     timedata =  raw_dataset['timedata']
     # converted_timestamp = np.datetime64(int(timestamp), 'us')
     df = pd.DataFrame.from_dict(timedata, orient='index')
-    df.index = pd.to_datetime(df.index, unit='us')
+    df.index = pd.to_datetime(pd.to_numeric(df.index), unit='us')
+    df = df.sort_index()
 
     if settings.rtt_ms:
         df.rtt = df.rtt / 1000

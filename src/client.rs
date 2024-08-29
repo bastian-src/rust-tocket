@@ -14,6 +14,7 @@ use std::{
     time::Duration,
 };
 
+use crate::external::MetricA;
 use crate::util::TcpInfo;
 use crate::TransmissionType;
 use crate::external::ClientMetrics;
@@ -89,6 +90,7 @@ pub struct TcpStatsLog {
     pub set_initital_cwnd: Option<u32>,
     pub set_upper_cwnd: Option<u32>,
     pub set_direct_cwnd: Option<u32>,
+    pub set_used_metric: Option<MetricA>,
     pub tcp_info: TcpInfo,
 }
 
@@ -200,18 +202,22 @@ fn patch_initial_cwnd(
     socket_file_descriptor: i32,
     client_metrics: &Option<Arc<Mutex<ClientMetrics>>>,
     client_addr: &str,
-) -> Result<Option<u32>> {
+) -> Result<(Option<u32>, Option<MetricA>)> {
+    let mut metric_option: Option<MetricA> = None;
     let initial_cwnd: u32 = match initial_cwnd_dyn {
         DynamicValue::Dynamic => {
             let latest_metric: MetricTypes =
                 unpack_latest_rate(&client_metrics.clone().unwrap(), client_addr)?;
+            match latest_metric {
+                MetricTypes::A(a_metric) => metric_option = Some(a_metric)
+            }
             let rate: u64 = latest_metric.get_rate();
             rate_to_cwnd(socket_file_descriptor, rate)?
         }
         DynamicValue::Fixed(fixed_cwnd) => fixed_cwnd,
     };
     sockopt_patch_cwnd(socket_file_descriptor, initial_cwnd, TCP_SET_INIT_CWND)?;
-    Ok(Some(initial_cwnd))
+    Ok((Some(initial_cwnd), metric_option))
 }
 
 fn patch_upper_cwnd(
@@ -219,18 +225,22 @@ fn patch_upper_cwnd(
     socket_file_descriptor: i32,
     client_metrics: &Option<Arc<Mutex<ClientMetrics>>>,
     client_addr: &str,
-) -> Result<Option<u32>> {
+) -> Result<(Option<u32>, Option<MetricA>)> {
+    let mut metric_option: Option<MetricA> = None;
     let upper_cwnd: u32 = match upper_cwnd_dyn {
         DynamicValue::Dynamic => {
             let latest_metric: MetricTypes =
                 unpack_latest_rate(&client_metrics.clone().unwrap(), client_addr)?;
+            match latest_metric {
+                MetricTypes::A(a_metric) => metric_option = Some(a_metric)
+            }
             let rate: u64 = latest_metric.get_rate();
             rate_to_cwnd(socket_file_descriptor, rate)?
         }
         DynamicValue::Fixed(fixed_cwnd) => fixed_cwnd,
     };
     sockopt_patch_cwnd(socket_file_descriptor, upper_cwnd, TCP_SET_UPPER_CWND)?;
-    Ok(Some(upper_cwnd))
+    Ok((Some(upper_cwnd), metric_option))
 }
 
 fn patch_direct_cwnd(
@@ -238,18 +248,22 @@ fn patch_direct_cwnd(
     socket_file_descriptor: i32,
     client_metrics: &Option<Arc<Mutex<ClientMetrics>>>,
     client_addr: &str,
-) -> Result<Option<u32>> {
+) -> Result<(Option<u32>, Option<MetricA>)> {
+    let mut metric_option: Option<MetricA> = None;
     let direct_cwnd: u32 = match direct_cwnd_dyn {
         DynamicValue::Dynamic => {
             let latest_metric: MetricTypes =
                 unpack_latest_rate(&client_metrics.clone().unwrap(), client_addr)?;
+            match latest_metric {
+                MetricTypes::A(a_metric) => metric_option = Some(a_metric)
+            }
             let rate: u64 = latest_metric.get_rate();
             rate_to_cwnd(socket_file_descriptor, rate)?
         }
         DynamicValue::Fixed(fixed_cwnd) => fixed_cwnd,
     };
     sockopt_patch_cwnd(socket_file_descriptor, direct_cwnd, TCP_SET_DIRECT_CWND)?;
-    Ok(Some(direct_cwnd))
+    Ok((Some(direct_cwnd), metric_option))
 }
 
 fn patch_upper_cwnd_if_new_metric(
@@ -258,23 +272,27 @@ fn patch_upper_cwnd_if_new_metric(
     client_metrics: &Option<Arc<Mutex<ClientMetrics>>>,
     client_addr: &str,
     last_metric_timestamp_us: &mut u64,
-) -> Result<Option<u32>> {
-     let upper_cwnd: u32 = match upper_cwnd_dyn {
+) -> Result<(Option<u32>, Option<MetricA>)> {
+    let mut metric_option: Option<MetricA> = None;
+    let upper_cwnd: u32 = match upper_cwnd_dyn {
         DynamicValue::Dynamic => {
             let latest_metric: MetricTypes =
                 unpack_latest_rate(&client_metrics.clone().unwrap(), client_addr)?;
+            match latest_metric {
+                MetricTypes::A(a_metric) => metric_option = Some(a_metric)
+            }
             if latest_metric.get_timestamp_us() > *last_metric_timestamp_us {
                 *last_metric_timestamp_us = latest_metric.get_timestamp_us();
                 let rate: u64 = latest_metric.get_rate();
                 rate_to_cwnd(socket_file_descriptor, rate)?
             } else {
-                return Ok(None)
+                return Ok((None, metric_option))
             }
         }
         DynamicValue::Fixed(fixed_cwnd) => fixed_cwnd,
     };
     sockopt_patch_cwnd(socket_file_descriptor, upper_cwnd, TCP_SET_UPPER_CWND)?;
-    Ok(Some(upper_cwnd))
+    Ok((Some(upper_cwnd), metric_option))
    
 }
 
@@ -284,23 +302,27 @@ fn patch_direct_cwnd_if_new_metric(
     client_metrics: &Option<Arc<Mutex<ClientMetrics>>>,
     client_addr: &str,
     last_metric_timestamp_us: &mut u64,
-) -> Result<Option<u32>> {
+) -> Result<(Option<u32>, Option<MetricA>)> {
+    let mut metric_option: Option<MetricA> = None;
     let direct_cwnd: u32 = match direct_cwnd_dyn {
         DynamicValue::Dynamic => {
             let latest_metric: MetricTypes =
                 unpack_latest_rate(&client_metrics.clone().unwrap(), client_addr)?;
+            match latest_metric {
+                MetricTypes::A(a_metric) => metric_option = Some(a_metric)
+            }
             if latest_metric.get_timestamp_us() > *last_metric_timestamp_us {
                 *last_metric_timestamp_us = latest_metric.get_timestamp_us();
                 let rate: u64 = latest_metric.get_rate();
                 rate_to_cwnd(socket_file_descriptor, rate)?
             } else {
-                return Ok(None)
+                return Ok((None, metric_option))
             }
         }
         DynamicValue::Fixed(fixed_cwnd) => fixed_cwnd,
     };
     sockopt_patch_cwnd(socket_file_descriptor, direct_cwnd, TCP_SET_DIRECT_CWND)?;
-    Ok(Some(direct_cwnd))
+    Ok((Some(direct_cwnd), metric_option))
 }
 
 pub fn handle_client(mut client_args: ClientArgs) -> Result<()> {
@@ -351,26 +373,26 @@ pub fn handle_client(mut client_args: ClientArgs) -> Result<()> {
         wait_until_client_metric(&client_metrics.clone().unwrap(), &client_addr);
     }
 
-    let initial_cwnd_option = if let Some(initial_cwnd_dyn) = set_initial_cwnd.clone() {
-        patch_initial_cwnd(initial_cwnd_dyn, socket_file_descriptor, &client_metrics, &client_addr)?
-    } else {
-        None
-    };
-    let upper_cwnd_option = if let Some(upper_cwnd_dyn) = set_upper_bound_cwnd.clone() {
-        patch_upper_cwnd(upper_cwnd_dyn, socket_file_descriptor, &client_metrics, &client_addr)?
-    } else {
-        None
-    };
-    let direct_cwnd_option = if let Some(direct_cwnd_dyn) = set_direct_cwnd.clone() {
-        patch_direct_cwnd(direct_cwnd_dyn, socket_file_descriptor, &client_metrics, &client_addr)?
-    } else {
-        None
-    };
+    let mut metric_option: Option<MetricA> = None;
+    let mut initial_cwnd_option: Option<u32> = None;
+    let mut upper_cwnd_option: Option<u32> = None;
+    let mut direct_cwnd_option: Option<u32> = None;
+
+    if let Some(initial_cwnd_dyn) = set_initial_cwnd.clone() {
+        (initial_cwnd_option, metric_option) = patch_initial_cwnd(initial_cwnd_dyn, socket_file_descriptor, &client_metrics, &client_addr)?
+    }
+    if let Some(upper_cwnd_dyn) = set_upper_bound_cwnd.clone() {
+        (upper_cwnd_option, metric_option) = patch_upper_cwnd(upper_cwnd_dyn, socket_file_descriptor, &client_metrics, &client_addr)?
+    }
+    if let Some(direct_cwnd_dyn) = set_direct_cwnd.clone() {
+        (direct_cwnd_option, metric_option) = patch_direct_cwnd(direct_cwnd_dyn, socket_file_descriptor, &client_metrics, &client_addr)?
+    }
     append_tcp_info_to_stats_log(socket_file_descriptor,
                                  &mut timedata,
                                  initial_cwnd_option,
                                  upper_cwnd_option,
-                                 direct_cwnd_option)?;
+                                 direct_cwnd_option,
+                                 metric_option)?;
 
 
     let min_rtt_us: u64 = sockopt_get_tcp_info(socket_file_descriptor)?.tcpi_rtt as u64;
@@ -400,12 +422,13 @@ pub fn handle_client(mut client_args: ClientArgs) -> Result<()> {
                                          &mut timedata,
                                          None,
                                          None,
+                                         None,
                                          None)?;
             last_logging_timestamp_us = now_us;
         }
         if transmission_type.is_l2b() {
             if let Some(upper_cwnd_dyn) = set_upper_bound_cwnd.clone()  {
-                let upper_cwnd_option = patch_upper_cwnd_if_new_metric(upper_cwnd_dyn,
+                let (upper_cwnd_option, metric_option) = patch_upper_cwnd_if_new_metric(upper_cwnd_dyn,
                                                socket_file_descriptor,
                                                &client_metrics,
                                                &client_addr,
@@ -415,11 +438,12 @@ pub fn handle_client(mut client_args: ClientArgs) -> Result<()> {
                                                  &mut timedata,
                                                  None,
                                                  upper_cwnd_option,
-                                                 None)?;
+                                                 None,
+                                                 metric_option)?;
                 }
             }
             if let Some(direct_cwnd_dyn) = set_direct_cwnd.clone() {
-                let direct_cwnd_option = patch_direct_cwnd_if_new_metric(direct_cwnd_dyn,
+                let (direct_cwnd_option, metric_option) = patch_direct_cwnd_if_new_metric(direct_cwnd_dyn,
                                                 socket_file_descriptor,
                                                 &client_metrics,
                                                 &client_addr,
@@ -429,7 +453,8 @@ pub fn handle_client(mut client_args: ClientArgs) -> Result<()> {
                                                  &mut timedata,
                                                  None,
                                                  None,
-                                                 direct_cwnd_option)?;
+                                                 direct_cwnd_option,
+                                                 metric_option)?;
                 }
             }
         }
@@ -438,6 +463,7 @@ pub fn handle_client(mut client_args: ClientArgs) -> Result<()> {
     }
     append_tcp_info_to_stats_log(socket_file_descriptor,
                                  &mut timedata,
+                                 None,
                                  None,
                                  None,
                                  None)?;
@@ -568,6 +594,7 @@ fn append_tcp_info_to_stats_log(
     initial_cwnd_option: Option<u32>,
     upper_cwnd_option: Option<u32>,
     direct_cwnd_option: Option<u32>,
+    metric_option: Option<MetricA>,
 ) -> Result<()> {
     let latest_tcp_info = sockopt_get_tcp_info(socket_file_descriptor)?;
 
@@ -583,6 +610,7 @@ fn append_tcp_info_to_stats_log(
         set_initital_cwnd: initial_cwnd_option,
         set_upper_cwnd: upper_cwnd_option,
         set_direct_cwnd: direct_cwnd_option,
+        set_used_metric: metric_option,
         tcp_info: latest_tcp_info,
     });
     Ok(())

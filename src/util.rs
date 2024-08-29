@@ -1,9 +1,14 @@
 use crate::{client::TcpStatsLog, TransmissionType};
 use std::{collections::HashMap, ffi::{CString, CStr}, fs::File, io::{Write, Read}};
+use serde::{Deserialize, Serialize};
 use sysctl::Sysctl;
 use anyhow::{anyhow, Result};
-use libc::{c_void, getsockopt, setsockopt, socklen_t, TCP_INFO, TCP_CONGESTION};
+use libc::{c_void, getsockopt, setsockopt, socklen_t, TCP_INFO, TCP_CONGESTION, SOL_PACKET};
 use std::mem;
+
+// Linux Kernel PACKET_STATISTICS (compare:
+// https://github.com/rust-lang/libc/blob/5c8a32d724be45b53521d34428d4ef669fa588b6/src/unix/linux_like/linux/mod.rs#L3194)
+const PACKET_STATISTICS: i32 = 6;
 
 pub const DEFAULT_BUS_SIZE: usize = 100;
 pub const THREAD_SLEEP_TIME_SHORT_US: u64 = 10;
@@ -17,16 +22,24 @@ pub const CONSTANT_US_TO_MS: u64 = 3000;
 /// Use this in combination with proc_set_u8() to adapt the tcp_friendliness behavior of CUBIC
 pub const PROC_PATH_TCP_CUBIC_TCP_FRIENDLINESS: &str = "/sys/module/tcp_cubic/parameters/tcp_friendliness";
 
-
 #[derive(Debug, Clone)]
 pub enum DynamicValue<T> {
     Dynamic,
     Fixed(T),
 }
 
+// Compare: https://man7.org/linux/man-pages/man7/packet.7.html
 #[repr(C)]
-#[derive(Debug, Default)]
-pub struct StockTcpInfo {
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct TPacketStats {
+    pub tp_packets: u32,
+    pub tp_drops: u32,
+}
+
+// Compare: https://www.man7.org/linux/man-pages/man7/tcp.7.html
+#[repr(C)]
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct TcpInfo {
     pub tcpi_state: u8,
     pub tcpi_ca_state: u8,
     pub tcpi_retransmits: u8,
@@ -67,85 +80,6 @@ pub struct StockTcpInfo {
     pub tcpi_rcv_space: u32,
 
     pub tcpi_total_retrans: u32,
-}
-
-
-#[repr(C)]
-#[derive(Debug, Default)]
-pub struct LatestTcpInfo {
-    pub tcpi_state: u8,
-    pub tcpi_ca_state: u8,
-    pub tcpi_retransmits: u8,
-    pub tcpi_probes: u8,
-    pub tcpi_backoff: u8,
-    pub tcpi_options: u8,
-    pub tcpi_snd_wscale: u8,  // Combined snd_wscale and rcv_wscale into u8.
-    pub tcpi_rcv_wscale: u8,  // Since they are 4-bit fields.
-
-    // Flags.
-    pub tcpi_delivery_rate_app_limited: u8,
-    pub tcpi_fastopen_client_fail: u8,
-
-    pub tcpi_rto: u32,
-    pub tcpi_ato: u32,
-    pub tcpi_snd_mss: u32,
-    pub tcpi_rcv_mss: u32,
-
-    pub tcpi_unacked: u32,
-    pub tcpi_sacked: u32,
-    pub tcpi_lost: u32,
-    pub tcpi_retrans: u32,
-    pub tcpi_fackets: u32,
-
-    // Times
-    pub tcpi_last_data_sent: u32,
-    pub tcpi_last_ack_sent: u32,
-    pub tcpi_last_data_recv: u32,
-    pub tcpi_last_ack_recv: u32,
-
-    // Metrics
-    pub tcpi_pmtu: u32,
-    pub tcpi_rcv_ssthresh: u32,
-    pub tcpi_rtt: u32,
-    pub tcpi_rttvar: u32,
-    pub tcpi_snd_ssthresh: u32,
-    pub tcpi_snd_cwnd: u32,
-    pub tcpi_advmss: u32,
-    pub tcpi_reordering: u32,
-
-    pub tcpi_rcv_rtt: u32,
-    pub tcpi_rcv_space: u32,
-
-    pub tcpi_total_retrans: u32,
-
-    // New fields
-    pub tcpi_pacing_rate: u64,
-    pub tcpi_max_pacing_rate: u64,
-    pub tcpi_bytes_acked: u64,
-    pub tcpi_bytes_received: u64,
-    pub tcpi_segs_out: u32,
-    pub tcpi_segs_in: u32,
-    pub tcpi_notsent_bytes: u32,
-    pub tcpi_min_rtt: u32,
-    pub tcpi_data_segs_in: u32,
-    pub tcpi_data_segs_out: u32,
-    pub tcpi_delivery_rate: u64,
-    pub tcpi_busy_time: u64,
-    pub tcpi_rwnd_limited: u64,
-    pub tcpi_sndbuf_limited: u64,
-    pub tcpi_delivered: u32,
-    pub tcpi_delivered_ce: u32,
-    pub tcpi_bytes_sent: u64,
-    pub tcpi_bytes_retrans: u64,
-    pub tcpi_dsack_dups: u32,
-    pub tcpi_reord_seen: u32,
-    pub tcpi_rcv_ooopack: u32,
-    pub tcpi_snd_wnd: u32,
-    pub tcpi_rcv_wnd: u32,
-    pub tcpi_rehash: u32,
-    pub tcpi_total_rto: u16,
-    pub tcpi_total_rto_recoveries: u16,
-    pub tcpi_total_rto_time: u32,
 }
 
 /// Returns the default TCP congestion control algorithm as a string.
@@ -314,9 +248,9 @@ pub fn get_active_cca(socket_file_descriptor: i32) -> Result<String> {
     Ok(cc_name_str.to_string())
 }
 
-pub fn sockopt_get_tcp_info(socket_file_descriptor: i32) -> Result<StockTcpInfo> {
-    let mut tcp_info: StockTcpInfo = StockTcpInfo::default();
-    let mut tcp_info_len = mem::size_of::<StockTcpInfo>() as socklen_t;
+pub fn sockopt_get_tcp_info(socket_file_descriptor: i32) -> Result<TcpInfo> {
+    let mut tcp_info: TcpInfo = TcpInfo::default();
+    let mut tcp_info_len = mem::size_of::<TcpInfo>() as socklen_t;
 
     let ret = unsafe {
         getsockopt(
@@ -335,23 +269,24 @@ pub fn sockopt_get_tcp_info(socket_file_descriptor: i32) -> Result<StockTcpInfo>
     Ok(tcp_info)
 }
 
-pub fn _sockopt_get_latest_tcp_info(socket_file_descriptor: i32) -> Result<LatestTcpInfo> {
-    let mut tcp_info: LatestTcpInfo = LatestTcpInfo::default();
-    let mut tcp_info_len = mem::size_of::<LatestTcpInfo>() as socklen_t;
+// Compare: https://unix.stackexchange.com/a/556793
+pub fn sockopt_get_tpacket_stats(socket_file_descriptor: i32) -> Result<TPacketStats, std::io::Error> {
+    let mut stats: TPacketStats = TPacketStats::default();
+    let mut stats_len = mem::size_of::<TPacketStats>() as socklen_t;
 
     let ret = unsafe {
         getsockopt(
             socket_file_descriptor,
-            libc::IPPROTO_TCP,
-            TCP_INFO,
-            &mut tcp_info as *mut _ as *mut c_void,
-            &mut tcp_info_len,
+            SOL_PACKET,
+            PACKET_STATISTICS,
+            &mut stats as *mut _ as *mut c_void,
+            &mut stats_len,
         )
     };
 
-    // Check if getsockopt was successful
     if ret != 0 {
-        return Err(anyhow!("An error occured running libc::getsockopt"));
+        return Err(std::io::Error::last_os_error());
     }
-    Ok(tcp_info)
+
+    Ok(stats)
 }

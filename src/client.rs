@@ -445,10 +445,10 @@ pub fn handle_client(mut client_args: ClientArgs) -> Result<()> {
         thread::sleep(Duration::from_micros(THREAD_SLEEP_TIME_SHORT_US));
     }
 
+    let tp_packets: TPacketStats = sockopt_get_tpacket_stats(socket_file_descriptor)?;
     finish_transmission(&mut joined_stream)?;
 
     let (rtt_mean, cwnd_mean, rtt_median, cwnd_median) = calculate_statistics(&timedata);
-    let tp_packets: TPacketStats = sockopt_get_tpacket_stats(socket_file_descriptor)?;
 
     let transmission = Transmission {
         client_ip: client_addr.clone(),

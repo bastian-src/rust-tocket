@@ -14,6 +14,9 @@ use std::{
     time::Duration,
 };
 
+use crate::util::sockopt_get_tpacket_stats;
+use crate::util::TPacketStats;
+use crate::util::TcpInfo;
 use crate::TransmissionType;
 use crate::external::ClientMetrics;
 use crate::external::MetricTypes;
@@ -53,7 +56,8 @@ pub struct Transmission {
     pub cwnd_mean: Option<u32>,
     pub rtt_median: Option<u32>,
     pub cwnd_median: Option<u32>,
-    pub total_packet_loss: u32,
+    pub total_packet_drops: u32,
+    pub total_packet_count: u32,
     pub timedata: HashMap<u64, TcpStatsLog>,
 }
 
@@ -68,7 +72,8 @@ impl fmt::Display for Transmission {
              \tCWND Mean:         {:?}\n\
              \tRTT Median:        {:?}\n\
              \tCWND Median:       {:?}\n\
-             \tPacket loss:       {:?}\n\
+             \tPacket drops:      {:?}\n\
+             \tPacket count:      {:?}\n\
              \tTimedata Size:     {}",
             self.client_ip,
             self.transmission_type,
@@ -77,7 +82,8 @@ impl fmt::Display for Transmission {
             self.cwnd_mean,
             self.rtt_median,
             self.cwnd_median,
-            self.total_packet_loss,
+            self.total_packet_drops,
+            self.total_packet_count,
             self.timedata.len(),
         )
     }
@@ -91,6 +97,7 @@ pub struct TcpStatsLog {
     pub set_initital_cwnd: Option<u32>,
     pub set_upper_cwnd: Option<u32>,
     pub set_direct_cwnd: Option<u32>,
+    pub tcp_info: TcpInfo,
 }
 
 #[derive(Debug)]
@@ -441,10 +448,7 @@ pub fn handle_client(mut client_args: ClientArgs) -> Result<()> {
     finish_transmission(&mut joined_stream)?;
 
     let (rtt_mean, cwnd_mean, rtt_median, cwnd_median) = calculate_statistics(&timedata);
-    let total_packet_loss = timedata
-        .values()
-        .map(|tcp_stats| tcp_stats.packet_loss)
-        .sum::<u32>();
+    let tp_packets: TPacketStats = sockopt_get_tpacket_stats(socket_file_descriptor)?;
 
     let transmission = Transmission {
         client_ip: client_addr.clone(),
@@ -457,7 +461,8 @@ pub fn handle_client(mut client_args: ClientArgs) -> Result<()> {
         cwnd_mean,
         rtt_median,
         cwnd_median,
-        total_packet_loss,
+        total_packet_count: tp_packets.tp_packets,
+        total_packet_drops: tp_packets.tp_drops,
         timedata,
     };
 
@@ -563,32 +568,6 @@ fn finish_transmission(stream: &mut TcpStream) -> Result<()> {
     Ok(())
 }
 
-/*
-fn run_sending_thread() -> Result<()> {
-
-    while (start_time.elapsed()?.as_millis() as u64) < transmission_duration_ms {
-        let now_us = chrono::Local::now().timestamp_micros() as u64;
-        if now_us - last_logging_timestamp_us >= logging_interval_us {
-            append_tcp_info_to_stats_log(&stream, &mut timedata)?;
-            last_logging_timestamp_us = now_us;
-        }
-        if let Some(upper_cwnd_dyn) = set_upper_bound_cwnd.clone() {
-            patch_upper_cwnd(upper_cwnd_dyn, &stream, &client_metrics, &client_addr)?;
-        }
-
-        if let Some(direct_cwnd_dyn) = set_direct_cwnd.clone() {
-            patch_direct_cwnd(direct_cwnd_dyn, &stream, &client_metrics, &client_addr)?;
-        }
-
-        stream.write_all(&dummy_data)?;
-        thread::sleep(Duration::from_micros(THREAD_SLEEP_TIME_SHORT_US));
-    }
-    stream.write_all(b"Transmission complete. Thank you!\n")?;
-    thread::sleep(Duration::from_millis(THREAD_SLEEP_FINISH_MS));
-    stream.flush()?; // Flush again to ensure the completion message is sent before
-}
-*/
-
 fn append_tcp_info_to_stats_log(
     socket_file_descriptor: i32,
     timedata: &mut HashMap<u64, TcpStatsLog>,
@@ -610,6 +589,7 @@ fn append_tcp_info_to_stats_log(
         set_initital_cwnd: initial_cwnd_option,
         set_upper_cwnd: upper_cwnd_option,
         set_direct_cwnd: direct_cwnd_option,
+        tcp_info: latest_tcp_info,
     });
     Ok(())
 }

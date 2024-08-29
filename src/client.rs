@@ -14,8 +14,6 @@ use std::{
     time::Duration,
 };
 
-use crate::util::sockopt_get_tpacket_stats;
-use crate::util::TPacketStats;
 use crate::util::TcpInfo;
 use crate::TransmissionType;
 use crate::external::ClientMetrics;
@@ -56,8 +54,6 @@ pub struct Transmission {
     pub cwnd_mean: Option<u32>,
     pub rtt_median: Option<u32>,
     pub cwnd_median: Option<u32>,
-    pub total_packet_drops: u32,
-    pub total_packet_count: u32,
     pub timedata: HashMap<u64, TcpStatsLog>,
 }
 
@@ -72,8 +68,6 @@ impl fmt::Display for Transmission {
              \tCWND Mean:         {:?}\n\
              \tRTT Median:        {:?}\n\
              \tCWND Median:       {:?}\n\
-             \tPacket drops:      {:?}\n\
-             \tPacket count:      {:?}\n\
              \tTimedata Size:     {}",
             self.client_ip,
             self.transmission_type,
@@ -82,8 +76,6 @@ impl fmt::Display for Transmission {
             self.cwnd_mean,
             self.rtt_median,
             self.cwnd_median,
-            self.total_packet_drops,
-            self.total_packet_count,
             self.timedata.len(),
         )
     }
@@ -444,8 +436,12 @@ pub fn handle_client(mut client_args: ClientArgs) -> Result<()> {
 
         thread::sleep(Duration::from_micros(THREAD_SLEEP_TIME_SHORT_US));
     }
+    append_tcp_info_to_stats_log(socket_file_descriptor,
+                                 &mut timedata,
+                                 None,
+                                 None,
+                                 None)?;
 
-    let tp_packets: TPacketStats = sockopt_get_tpacket_stats(socket_file_descriptor)?;
     finish_transmission(&mut joined_stream)?;
 
     let (rtt_mean, cwnd_mean, rtt_median, cwnd_median) = calculate_statistics(&timedata);
@@ -461,8 +457,6 @@ pub fn handle_client(mut client_args: ClientArgs) -> Result<()> {
         cwnd_mean,
         rtt_median,
         cwnd_median,
-        total_packet_count: tp_packets.tp_packets,
-        total_packet_drops: tp_packets.tp_drops,
         timedata,
     };
 

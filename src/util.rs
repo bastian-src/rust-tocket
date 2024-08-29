@@ -8,6 +8,7 @@ use std::mem;
 
 // Linux Kernel PACKET_STATISTICS (compare:
 // https://github.com/rust-lang/libc/blob/5c8a32d724be45b53521d34428d4ef669fa588b6/src/unix/linux_like/linux/mod.rs#L3194)
+#[allow(dead_code)]
 const PACKET_STATISTICS: i32 = 6;
 
 pub const DEFAULT_BUS_SIZE: usize = 100;
@@ -270,6 +271,8 @@ pub fn sockopt_get_tcp_info(socket_file_descriptor: i32) -> Result<TcpInfo> {
 }
 
 // Compare: https://unix.stackexchange.com/a/556793
+// NEEDS a Layer 2 SOCKET!!!
+#[allow(dead_code)]
 pub fn sockopt_get_tpacket_stats(socket_file_descriptor: i32) -> Result<TPacketStats, std::io::Error> {
     let mut stats: TPacketStats = TPacketStats::default();
     let mut stats_len = mem::size_of::<TPacketStats>() as socklen_t;
